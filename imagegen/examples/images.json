@@ -1,0 +1,4 @@
+[
+ {"name": "red-mug", "prompt": "a glossy red ceramic coffee mug on a plain light grey background, product photo", "w": 1024, "h": 1024, "seed": 1, "cutout": true},
+ {"name": "forest-tile", "prompt": "top-down view of a mossy forest floor with small stones, game texture, even lighting", "w": 1024, "h": 1024, "seed": 2}
+]

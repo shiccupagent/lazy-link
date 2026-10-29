@@ -1,0 +1,5 @@
+# .cmd files keep their Windows line endings byte for byte (a ZIP download does no conversion,
+# and cmd.exe misreads labels in LF-only batch files)
+*.cmd -text
+*.sh text eol=lf
+mac/pcjob text eol=lf

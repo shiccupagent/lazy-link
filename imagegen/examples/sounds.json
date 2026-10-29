@@ -1,0 +1,4 @@
+[
+ {"name": "coin", "params": {"prompt": "a bright, soft coin pickup chime for a video game, short, clean", "seconds": 1.5, "seed": 1}},
+ {"name": "door", "params": {"prompt": "a heavy wooden door creaking open slowly", "seconds": 3, "seed": 1}}
+]

@@ -1,0 +1,14 @@
+{
+ "_doc": "Made by `mac/pcjob pair`; copy to config.json only to set things by hand. config.json is personal (gitignored).",
+ "ssh_host": "render-pc",
+ "pc_address": "192.168.1.50",
+ "pc_mac": "00-11-22-33-44-55",
+ "broadcast": ["192.168.1.255"],
+ "pc_root": "C:/render",
+ "extra_model_folders": {
+  "_doc": "optional: model folders you already have on the PC (ComfyUI layout), read-only, so nothing downloads twice",
+  "diffusion_models": ["D:/MyModels/diffusion_models"],
+  "text_encoders": ["D:/MyModels/text_encoders"],
+  "vae": ["D:/MyModels/vae"]
+ }
+}
