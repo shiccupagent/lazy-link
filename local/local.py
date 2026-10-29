@@ -18,6 +18,7 @@ sys.path.insert(0, str(HERE.parent / "imagegen"))
 import imagegen  # noqa: E402  (send(): wake the PC, run the job, fetch, sleep it again if we woke it)
 
 PS1 = r"""$ErrorActionPreference = 'Continue'
+if (-not $env:RENDER_ROOT) { 'RENDER_ROOT is not set: the PC runs an old runner (pcjob push-runner)'; exit 3 }
 $py = Join-Path $env:RENDER_ROOT 'tools\whisper-venv\Scripts\python.exe'   # plain Python is enough for the chat side too
 & $py -u pc_job.py
 exit $LASTEXITCODE
@@ -65,7 +66,10 @@ def main():
             f = Path(td) / "asks.jsonl"
             f.write_text(json.dumps({"id": "one", "prompt": args.prompt}) + "\n")
             out = run([f], want, Path(td) / "out", "local-ask")
-            print(json.loads((out / "answers.jsonl").read_text().splitlines()[0])["answer"])
+            ans = out / "answers.jsonl"
+            if not ans.exists():
+                sys.exit("no answer came back; the job log above says why (pcjob log ID shows it again)")
+            print(json.loads(ans.read_text().splitlines()[0])["answer"])
 
 
 if __name__ == "__main__":
