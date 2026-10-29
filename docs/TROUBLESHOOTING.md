@@ -18,6 +18,11 @@ PowerShell turns anything a program prints to stderr into an error when `$ErrorA
 `Stop` and you capture with `2>&1`. Judge native programs by their exit code (`$LASTEXITCODE`), and
 use `'Continue'` around chatty tools like Blender.
 
+**A command works in a job but fails when run straight over SSH** ("untrusted mount point",
+os error 448, or "uv trampoline failed to spawn Python"). Windows treats an SSH login as a network
+logon and won't follow the folder links that uv's Python install uses. Send work as a job
+(`pcjob run`); the runner is a scheduled task, a normal logon, so it works there.
+
 **Quoting PowerShell over SSH breaks.**
 Don't fight it: `pcjob` sends every command as base64 with `-EncodedCommand`.
 
