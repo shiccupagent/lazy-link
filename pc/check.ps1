@@ -55,5 +55,31 @@ $r.sleep_after_min = Try-Get {
     $q = powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null | Select-String 'Current AC Power Setting Index'
     if ($q) { [int]([Convert]::ToInt64(($q.Line -split ':\s*')[-1].Trim(), 16) / 60) } }
 
+# Extra model folders (config.json extra_model_folders, sent with every job as link.json): can the job account
+# reach them, are they locked read-only for it (a DENY from Setup-PC), and how many model files are in them.
+# Only the drive letter is reported, never the folder path (it can hold a user name).
+$r.extra_folders = @()
+$lk = Join-Path (Get-Location) 'link.json'
+$extra = if (Test-Path $lk) { Try-Get { (Get-Content $lk -Raw | ConvertFrom-Json).extra_model_folders } }
+foreach ($kind in @($extra.PSObject.Properties | Where-Object { $_.Name -notlike '_*' })) {
+    foreach ($p in @($kind.Value | Where-Object { $_ -is [string] -and $_ })) {
+        $item = [ordered]@{ kind = $kind.Name; drive = (Split-Path -Qualifier $p); exists = $false; readable = $false; model_files = 0; locked = $null }
+        $item.exists = [bool](Try-Get { Test-Path -LiteralPath $p -PathType Container })
+        if ($item.exists) {
+            # Lazy enumeration, stopped at 500 files: a big model folder is not read in full.
+            $item.readable = [bool](Try-Get {
+                $n = 0
+                foreach ($f in [IO.Directory]::EnumerateFiles($p, '*', [IO.SearchOption]::AllDirectories)) { $n++; if ($n -ge 500) { break } }
+                $item.model_files = $n; $true })
+            if ($item.readable) {
+                # icacls only reads the ACL; a DENY entry for lazylink is what the lock looks like.
+                $acl = (icacls $p 2>$null | Out-String)
+                $item.locked = [bool]($acl -match '\\lazylink:[^\r\n]*\(DENY\)')
+            }
+        }
+        $r.extra_folders += $item
+    }
+}
+
 $r | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $env:RENDER_OUT 'check.json') -Encoding utf8
 Get-Content (Join-Path $env:RENDER_OUT 'check.json')
