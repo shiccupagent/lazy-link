@@ -12,6 +12,8 @@ does the heavy lifting with no windows, and goes back to sleep.
 - **Cheap-electricity hours:**
   - `--cheap` / `LAZY_CHEAP=1` / `cheap_only` hold jobs until the off-peak hours.
   - `cheap_hours_auto` lets Claude look up your plan's hours.
+  - **Live prices:** `cheap_feed` picks the cheapest hours each day from ComEd (Northern Illinois) or
+    Octopus Agile (UK). Other free feeds can be added as one function each.
 - **Guides:** [BIOS and wake](BIOS-AND-WAKE.md), and an optional [remote desktop](REMOTE-DESKTOP.md) guide.
 
 ## Next
@@ -24,13 +26,11 @@ does the heavy lifting with no windows, and goes back to sleep.
    - **Apple Silicon Mac as the big computer:** ComfyUI and llama.cpp use Metal; launchd runs the runner.
    - **AMD cards:** ROCm on Linux, DirectML/ZLUDA on Windows. Speed and model support vary, so `check.py` rates them separately.
    - Each one is done only when it has passed on real hardware.
-3. **Live prices:** where a free public feed exists, pick the cheapest hours each day instead of fixed windows.
-   Examples are a US utility's hourly price feed or a UK agile tariff.
-4. **Tidy-up for an old PC (opt-in, never automatic):** after `check.py`, offer the safe Windows clean-ups:
+3. **Tidy-up for an old PC (opt-in, never automatic):** after `check.py`, offer the safe Windows clean-ups:
    - Storage Sense / Disk Cleanup categories
    - old update files, temp files
    Each one shows the size first and runs only after a yes. Personal files are never touched.
-5. **More than one big computer (a home AI cluster):**
+4. **More than one big computer (a home AI cluster):**
    - a list of machines in `config.json`
    - each job goes to the one that's awake, free and has enough graphics memory
    - every machine is set up by its owner, with the same safety rules

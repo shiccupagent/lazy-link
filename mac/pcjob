@@ -10,7 +10,7 @@ the Mac sleeping never kills a job.
 
   pcjob pair PC_ADDRESS [--os linux]   first time: check the PC's fingerprint, write ~/.ssh/config + config.json
   pcjob run DIR [--name N] [--timeout S] [--wait] [--fetch DEST] [--cheap]   send a job (wakes the PC)
-  pcjob cheap                    the cheap-electricity hours, and whether they're on now
+  pcjob cheap                    the cheap-electricity hours (live prices if cheap_feed is set), and whether they're on now
   pcjob status ID | list | log ID | wait ID [--max S] | fetch ID DEST | cancel ID | rm ID
   pcjob put FILE                 copy a big input onto the PC once (prints media:<name>)
   pcjob ping | info | wake | sleep | push-runner   (sleep refuses while someone is using the PC)
@@ -20,6 +20,8 @@ and the sh one (Linux). pc_os in config.json picks which one runs.
 Settings: config.json beside this repo's README (made by `pcjob pair`; see config.example.json).
 """
 import argparse, base64, hashlib, ipaddress, json, os, re, shlex, socket, subprocess, sys, tarfile, tempfile, time
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -269,13 +271,184 @@ def status(job_id):
     return json.loads(on_pc(op_status, job_id))
 
 
-def windows():
+# ---- live prices: "cheap_feed" in config.json picks the cheapest hours of each day from a free public feed ----
+# ComEd (Northern Illinois, USA), checked 2026-10-30:
+#   https://hourlypricing.comed.com/api?type=daynexttomorrow&format=json  tomorrow's day-ahead, [] until published
+#   https://hourlypricing.comed.com/api?type=5minutefeed&format=json      the last 24 h, 5-minute slots (guess when day-ahead is empty)
+#   rows are {"millisUTC": "...", "price": "3.0"} in cents/kWh
+# Octopus Energy Agile (UK), checked 2026-10-30, no key:
+#   https://api.octopus.energy/v1/products/?is_variable=true              the product list; the Agile code changes, so pick the newest open one
+#   https://api.octopus.energy/v1/products/<CODE>/electricity-tariffs/E-1R-<CODE>-<REGION>/standard-unit-rates/?period_from=..&period_to=..
+#   half-hourly rows {"valid_from", "valid_to", "value_inc_vat"} in pence/kWh, newest first, paged with "next"
+COMED_API = "https://hourlypricing.comed.com/api"
+OCTOPUS_API = "https://api.octopus.energy/v1"
+CHEAP_FEED = CFG.get("cheap_feed") or None
+CHEAP_FEED_HOURS = CFG.get("cheap_feed_hours", 6)
+CHEAP_CACHE = CONFIG.with_name(".cheap-feed-cache.json")
+FEED_TIMEOUT_S = 10
+FEED_MAX_AGE_S = 3 * 3600      # refetch at least this often
+FEED_COVER_S = 12 * 3600       # the prices should reach this far ahead
+FEED_RETRY_S = 30 * 60         # after a failure, or a feed that ends too soon, wait this long before asking again
+_feed_retry_at = 0.0
+if CHEAP_FEED is not None:
+    if not isinstance(CHEAP_FEED, dict) or CHEAP_FEED.get("source") not in ("comed", "octopus") or \
+            (CHEAP_FEED.get("source") == "octopus" and not re.fullmatch(r"[A-Za-z]", str(CHEAP_FEED.get("region", "")))):
+        sys.exit('pcjob: cheap_feed in config.json must be {"source": "comed"} or {"source": "octopus", "region": "C"}')
+    if not isinstance(CHEAP_FEED_HOURS, int) or isinstance(CHEAP_FEED_HOURS, bool) or not 1 <= CHEAP_FEED_HOURS <= 24:
+        sys.exit("pcjob: cheap_feed_hours in config.json must be a whole number from 1 to 24")
+
+
+def _get_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "lazy-link-pcjob"})
+    with urllib.request.urlopen(req, timeout=FEED_TIMEOUT_S) as r:
+        return json.loads(r.read().decode("utf-8-sig"))
+
+
+def _utc(t):
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _iso_epoch(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+
+
+def _hour_start(t):
+    """The start of the local hour that contains epoch time t."""
+    return int(datetime.fromtimestamp(t).replace(minute=0, second=0, microsecond=0).timestamp())
+
+
+def _octopus_pages(url):
+    while url:
+        d = _get_json(url)
+        yield from d["results"]
+        url = d.get("next")
+
+
+def _comed_slots():
+    day_ahead = [(int(r["millisUTC"]) / 1000, float(r["price"]))
+                 for r in _get_json(f"{COMED_API}?type=daynexttomorrow&format=json")]
+    if day_ahead:
+        return day_ahead, "ComEd day-ahead prices"
+    # not published yet: the last 24 h, moved on by one day, is the guess for the next 24 h
+    last_day = [(int(r["millisUTC"]) / 1000 + 86400, float(r["price"]))
+                for r in _get_json(f"{COMED_API}?type=5minutefeed&format=json")]
+    return last_day, "ComEd last day's prices (day-ahead not out yet)"
+
+
+def _octopus_slots(region):
+    agile = [p for p in _octopus_pages(f"{OCTOPUS_API}/products/?is_variable=true")
+             if p["code"].startswith("AGILE-") and "OUTGOING" not in p["code"]
+             and p.get("direction") == "IMPORT" and not p.get("available_to")]
+    if not agile:
+        raise ValueError("no open Agile import tariff on the Octopus product list")
+    code = max(agile, key=lambda p: _iso_epoch(p["available_from"]))["code"]
+    start = int(time.time() // 3600) * 3600
+    url = (f"{OCTOPUS_API}/products/{code}/electricity-tariffs/E-1R-{code}-{region}/standard-unit-rates/"
+           f"?period_from={_utc(start)}&period_to={_utc(start + 86400)}&page_size=100")
+    slots = [(_iso_epoch(r["valid_from"]), float(r["value_inc_vat"])) for r in _octopus_pages(url)]
+    return slots, f"Octopus Agile {code} (region {region})"
+
+
+def _pick(slots, now, n):
+    """Average the prices into whole local hours, keep the next 24 h, take the n cheapest hours.
+    Returns ([[start, end], ...] epoch windows in time order, when the prices run out)."""
+    by_hour = {}
+    for t, price in slots:
+        by_hour.setdefault(_hour_start(t), []).append(price)
+    if not by_hour:
+        raise ValueError("the feed had no prices")
+    first = _hour_start(now)
+    avg = {h: sum(v) / len(v) for h, v in by_hour.items() if first <= h < now + 86400}
+    if not avg:
+        raise ValueError("the feed had no prices for the next 24 h")
+    spans = []
+    for h in sorted(sorted(avg, key=avg.get)[:n]):
+        if spans and spans[-1][1] == h:
+            spans[-1][1] = h + 3600
+        else:
+            spans.append([h, h + 3600])
+    return spans, max(by_hour) + 3600
+
+
+def _clock_min(t):
+    lt = time.localtime(t)
+    return lt.tm_hour * 60 + lt.tm_min
+
+
+def _feed_key():
+    return json.dumps([CHEAP_FEED, CHEAP_FEED_HOURS], sort_keys=True)
+
+
+def _read_cache():
+    try:
+        c = json.loads(CHEAP_CACHE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    ok = isinstance(c, dict) and c.get("key") == _feed_key() and all(k in c for k in ("fetched_at", "covers_until", "label", "windows"))
+    return c if ok else None
+
+
+def _fetch_plan(now):
+    src = CHEAP_FEED["source"]
+    if src == "comed":
+        slots, label = _comed_slots()
+    else:
+        slots, label = _octopus_slots(CHEAP_FEED["region"].upper())
+    spans, covers = _pick(slots, now, CHEAP_FEED_HOURS)
+    return {"key": _feed_key(), "fetched_at": int(now), "covers_until": covers, "label": label,
+            "windows": [[_clock_min(a) % 1440, _clock_min(b) % 1440] for a, b in spans]}
+
+
+def cheap_feed_plan(now=None):
+    """The live feed's plan ({"label", "windows", ...}), or None when the feed is off or down.
+    Uses the cache file while it is fresh; asks the feed at most once per FEED_RETRY_S. Never raises."""
+    global _feed_retry_at
+    now = time.time() if now is None else now
+    c = _read_cache()
+    if c and now - c["fetched_at"] < FEED_MAX_AGE_S and (c["covers_until"] >= now + FEED_COVER_S or now - c["fetched_at"] < FEED_RETRY_S):
+        return c
+    if now < _feed_retry_at:
+        return None
+    try:
+        plan = _fetch_plan(now)
+    except Exception as e:   # any trouble with the feed: fall back, never crash a job
+        _feed_retry_at = now + FEED_RETRY_S
+        fallback = "cheap_hours instead" if CFG.get("cheap_hours") else "no cheap_hours fallback set"
+        print(f"pcjob: live price feed unavailable ({e.__class__.__name__}: {e}); using {fallback}", file=sys.stderr, flush=True)
+        return None
+    try:
+        CHEAP_CACHE.write_text(json.dumps(plan) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return plan
+
+
+def span_text(ws):
+    return ", ".join(f"{a // 60:02d}:{a % 60:02d}-{b // 60:02d}:{b % 60:02d}" for a, b in ws)
+
+
+def fixed_windows():
     """config.json "cheap_hours": ["23:00-07:00", ...] (this computer's clock) -> [(start_min, end_min)]."""
     out = []
     for w in CFG.get("cheap_hours") or []:
         a, b = (int(h) * 60 + int(m) for h, m in (x.strip().split(":") for x in w.split("-")))
         out.append((a, b))
     return out
+
+
+def cheap_source():
+    """(label, [(start_min, end_min)]) for the hours in use: the live feed when it works, else cheap_hours.
+    The label is None when neither gives any hours."""
+    plan = cheap_feed_plan() if CHEAP_FEED else None
+    if plan:
+        return plan["label"], [tuple(w) for w in plan["windows"]]
+    ws = fixed_windows()
+    return ("cheap_hours" if ws else None), ws
+
+
+def windows():
+    """The cheap hours as [(start_min, end_min)] on this computer's clock (a window may wrap past midnight)."""
+    return cheap_source()[1]
 
 
 def minutes_to_cheap(now=None):
@@ -294,14 +467,17 @@ def wait_for_cheap(force=False):
     """Hold a heavy job until electricity is cheap: with --cheap, LAZY_CHEAP=1, or "cheap_only": true in config.json."""
     if not (force or CFG.get("cheap_only") or os.environ.get("LAZY_CHEAP") == "1"):
         return
+    label, ws = cheap_source()
+    if not ws and not CHEAP_FEED:
+        sys.exit("pcjob: --cheap needs \"cheap_hours\" or \"cheap_feed\" in config.json, e.g. [\"23:00-07:00\"] (see config.example.json)")
     left = minutes_to_cheap()
-    if left is None:
-        sys.exit("pcjob: --cheap needs \"cheap_hours\" in config.json, e.g. [\"23:00-07:00\"] (see config.example.json)")
-    if left:
+    if left is None:   # the live feed is down and there is no cheap_hours fallback: keep waiting, retry later
+        print("pcjob: waiting: the live price feed is down and no cheap_hours fallback is set; retrying", flush=True)
+    elif left:
         print(f"pcjob: waiting for cheap electricity: starts in {left // 60} h {left % 60:02d} min "
-              f"({', '.join(CFG['cheap_hours'])})", flush=True)
-        while minutes_to_cheap():
-            time.sleep(30)
+              f"({label}: {span_text(ws)})", flush=True)
+    while minutes_to_cheap() != 0:
+        time.sleep(30)
 
 
 def cmd_run(a):
@@ -566,11 +742,17 @@ def main():
     elif a.cmd == "wake":
         print("woke the PC" if wake() else "PC was already awake")
     elif a.cmd == "cheap":
-        left = minutes_to_cheap()
-        print("no cheap hours set (config.json \"cheap_hours\")" if left is None else
-              f"cheap hours {', '.join(CFG['cheap_hours'])}: " + ("on now" if left == 0 else f"next in {left // 60} h {left % 60:02d} min")
-              + (f"; {CFG['cheap_hours_note']}" if CFG.get("cheap_hours_note") else "")
-              + ("; every job waits for them" if CFG.get("cheap_only") else "; jobs wait only with --cheap or LAZY_CHEAP=1"))
+        label, ws = cheap_source()
+        if not ws:
+            print('no cheap hours set (config.json "cheap_feed" or "cheap_hours")'
+                  + (" - the live price feed is down right now" if CHEAP_FEED else ""))
+        else:
+            left = minutes_to_cheap()
+            head = (f"cheap hours {span_text(ws)}" if label == "cheap_hours" else
+                    f"cheapest {CHEAP_FEED_HOURS} h of the next 24 h, live from {label}: {span_text(ws)}")
+            print(f"{head}: " + ("on now" if left == 0 else f"next in {left // 60} h {left % 60:02d} min")
+                  + (f"; {CFG['cheap_hours_note']}" if CFG.get("cheap_hours_note") and label == "cheap_hours" else "")
+                  + ("; every job waits for them" if CFG.get("cheap_only") else "; jobs wait only with --cheap or LAZY_CHEAP=1"))
     else:
         {"run": cmd_run, "status": cmd_status, "list": cmd_list, "log": cmd_log, "wait": cmd_wait,
          "fetch": cmd_fetch, "cancel": cmd_cancel, "rm": cmd_rm, "sleep": cmd_sleep, "put": cmd_put, "push-runner": cmd_push_runner,

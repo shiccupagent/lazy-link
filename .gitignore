@@ -1,5 +1,6 @@
 # personal: your PC's address, network card and model folders
 config.json
+.cheap-feed-cache.json
 pc/mac-key.pub
 linux/mac-key.pub
 reports/

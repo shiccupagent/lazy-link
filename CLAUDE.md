@@ -36,3 +36,4 @@ are Windows-only for now (they say so). Setup steps: README.md; other mixes: REA
   time-of-use or off-peak hours on the company's own site, then write `cheap_hours`, plus `cheap_hours_note`
   (plan name, source link, date checked). Check again when the note is over 90 days old or the season changes.
   With no time-of-use plan, say so: every hour costs the same, so off-peak only helps the grid.
+  If the utility is ComEd (Northern Illinois) or the plan is Octopus Agile (UK), set `cheap_feed` instead of fixed hours.

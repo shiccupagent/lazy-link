@@ -81,6 +81,9 @@ If your power company charges less at night, put the cheap hours in `config.json
 waits until then, and `"cheap_only": true` makes every job wait. Don't know your hours? Set
 `"cheap_hours_auto": true` and Claude looks up your plan's off-peak hours and keeps them current.
 `./mac/pcjob cheap` shows the hours and whether they're on now.
+In Northern Illinois (ComEd) or on the UK's Octopus Agile tariff, `"cheap_feed": {"source": "comed"}` or
+`{"source": "octopus", "region": "C"}` picks the cheapest 6 hours of each day from the utility's free live
+price feed instead. Keep `cheap_hours` set too: it is used if the feed is down.
 
 ## Safety, in plain words
 - **A separate, hidden, standard account** (`render`) runs every job. It is not an administrator,
