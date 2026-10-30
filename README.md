@@ -141,7 +141,7 @@ Which mode for which scene:
 | A static backdrop, or a room with no realtime lights | `full` |
 | A game scene that keeps its realtime lights and applies `aoMap` | `hybrid` (the default) |
 
-`hybrid` on a prop on its own fails the dark check, because almost no light bounces onto it from nothing around it (the test table: 0.0028 against a 0.005 limit). Use `full` there.
+`hybrid` on a prop on its own gives a near-black light map, because almost no light bounces onto it from nothing around it (the test table: 0.0028 against a 0.005 threshold). That is a warning, not a failure: the GLB is still written and `summary.json` lists it under `warnings`. Use `full` for a prop.
 
 Each `<mesh>_lightmap.json` says how to use its map:
 ```json
@@ -149,7 +149,7 @@ Each `<mesh>_lightmap.json` says how to use its map:
 ```
 `intensity` is the three.js `lightMapIntensity` (pi, divided by the gain, because three.js divides lightmaps by pi). `aoMap` is true for `hybrid`, so apply the AO map with it; for `full`, leave `aoMap` off.
 
-A mesh that bakes black or flat fails the job: no GLB is written, and `summary.json` says `"status": "failed"` and names the mesh. Fix the scene first. `--allow-dark NAME` lets through only a mesh that really is unlit; it is listed as `dark_allowed` in `summary.json`.
+A mesh whose AO bakes black or flat fails the job, and in `full` so does one whose light map bakes black: no GLB is written, and `summary.json` says `"status": "failed"` and names the mesh. In `hybrid` a black light map is only a warning (`bounce-only light map is very dark: little nearby surface to bounce from`): the GLB is written and the line goes under `warnings`. A black or flat AO still fails in `hybrid`, because then the mesh was not seen. Fix the scene first. `--allow-dark NAME` lets through only a mesh that really is unlit; it is listed as `dark_allowed` in `summary.json`.
 
 Materials: only a texture can make a surface transparent (leaves, cutouts). A factor alpha with no texture is baked as opaque, and the GLB's own materials are written back unchanged. A mesh with no UVs gets a placeholder UV layer named `UVMap`, which becomes TEXCOORD_0, so the bake layer lands in TEXCOORD_1.
 

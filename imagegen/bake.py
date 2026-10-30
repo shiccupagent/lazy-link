@@ -14,11 +14,12 @@ Modes (--mode, default hybrid; the sidecar says which one was baked). Which one 
   full    direct + indirect light, already shadowed. For props on their own, static backdrops, and any
           room with no realtime lights. No aoMap.
   hybrid  bounce only. For scenes that keep realtime lights and apply aoMap. A prop on its own has almost no
-          bounce, so hybrid fails the dark check on it: use full.
+          bounce, so its light map is near black: a warning, not a failure. A prop on its own belongs in full.
 
-A mesh whose light map is black, whose AO is black, or whose AO is flat (all 1) fails the job: no GLB is
-written, and summary.json says "status": "failed" with the reasons. --allow-dark NAME[,NAME] lets a genuinely
-unlit mesh through; it is listed as dark_allowed in summary.json. A material's alpha counts only when a
+A mesh whose AO is black or flat (all 1) fails the job, and in full so does one whose light map is black: no GLB
+is written, and summary.json says "status": "failed" with the reasons. In hybrid a black light map is a warning
+("bounce-only light map is very dark"), listed under warnings in summary.json. --allow-dark NAME[,NAME] lets a
+genuinely unlit mesh through; it is listed as dark_allowed in summary.json. A material's alpha counts only when a
 texture drives it: a factor alpha is baked as opaque (see pc/bake_blender.py).
 
 DIR gets <mesh>_lightmap.png (sRGB), <mesh>_lightmap.json ({mode, intensity, colorSpace, aoMap}),
@@ -160,7 +161,7 @@ def _submit(ig, files, ps1, out, timeout, wait):
 def bake(glb, out, timeout=DEFAULT_TIMEOUT, wait=WAIT_LIMIT, **opts):
     """Bake light maps and AO for one .glb (or the test room when glb is None). Returns the summary dict
     from DIR/summary.json. Raises SystemExit when the PC job fails, writes no summary, or reports a failed
-    status (a black or flat map; allow_dark lets a genuinely unlit mesh through)."""
+    status (a black or flat AO, or a black light map in full; allow_dark lets a genuinely unlit mesh through)."""
     ig = _imagegen()
     if ig.load_pcjob().POSIX:   # refused before anything is woken or sent
         raise SystemExit("bake: Windows PC only for now")
@@ -199,6 +200,8 @@ def bake(glb, out, timeout=DEFAULT_TIMEOUT, wait=WAIT_LIMIT, **opts):
     summary = json.loads(summary_file.read_text())
     if summary.get("status") == "failed":
         raise SystemExit(f"bake failed: {' | '.join(summary.get('failures', []))}; see {out / 'blender.log'}")
+    for w in summary.get("warnings", []):
+        print(f"bake WARNING: {w}", file=sys.stderr)
     return summary
 
 

@@ -27,9 +27,11 @@ options.json, every key optional:
   ao_distance       AO ray distance in scene units (default 1.5)
   denoise           Cycles denoising (default true)
   min_size, max_size  per-map size limits in pixels (default 512 and 2048)
-  allow_dark        mesh names allowed to bake black or flat (default none). Every other mesh whose light map is
-                    black, whose AO is black, or whose AO is flat (all 1) fails the job: no GLB is written, and
-                    summary.json says "status": "failed" with the reasons. Use it only for a genuinely unlit mesh.
+  allow_dark        mesh names allowed to bake black or flat (default none). Every other mesh whose AO is black or
+                    flat (all 1) fails the job, and in full so does one whose light map is black: no GLB is written,
+                    and summary.json says "status": "failed" with the reasons. In hybrid a black light map is a
+                    warning (summary.json "warnings"): bounce-only light on a lone prop is near zero. Use allow_dark
+                    only for a genuinely unlit mesh.
 
 Materials: only a texture can make a material's alpha (a real cutout such as leaves). A factor alpha with no
 texture (glTF baseColorFactor.a, e.g. a prop exported with alpha 0 and MASK) is ignored for the bake, so the mesh
@@ -43,7 +45,7 @@ OUT_DIR gets <mesh>_lightmap.png (sRGB; full: direct + indirect light, hybrid: i
 lightMapIntensity, pi / gain, because three.js divides lightmaps by pi in its diffuse term and the
 gain is already in the PNG; aoMap is true for hybrid, false for full), manifest.json,
 <stem>_baked.glb (the bake layer is exported as TEXCOORD_1), summary.json ("status": "ok" or "failed",
-with the failures and the dark_allowed list), and one stdout line
+with the failures, the warnings and the dark_allowed list), and one stdout line
 that starts with BAKE_SUMMARY.
 """
 import json
@@ -505,23 +507,29 @@ def write_png(path, px, gray):
                            + chunk(b"IDAT", zlib.compress(raw.tobytes(), 6)) + chunk(b"IEND", b""))
 
 
-def dark_check(lit, ao):
-    """Why this mesh's maps are unusable, as a list ([] when they are fine), plus the AO stats on the covered
-    texels (ao > 0). Black: a whole-map mean under DARK_MEAN. Flat: the covered AO is about 1 with almost no
-    spread, so no occlusion was baked. An open plane with nothing around it is flat too; allow_dark covers it."""
-    reasons = []
+def dark_check(lit, ao, mode):
+    """(fails, warns, cov_mean, cov_std) for one mesh. Black: a whole-map mean under DARK_MEAN. Flat: the covered
+    AO (ao > 0) is about 1 with almost no spread, so no occlusion was baked; an open plane with nothing around it
+    is flat too, and allow_dark covers it. full: a black light map fails. hybrid holds bounce only, so a black
+    light map is a warning (little nearby surface to bounce from); a black or flat AO still fails, because then
+    the mesh was not seen."""
+    fails, warns = [], []
     lit_mean, ao_mean = float(lit.mean()), float(ao.mean())
     if lit_mean < DARK_MEAN:
-        reasons.append(f"light map mean {lit_mean:.4f} is black (under {DARK_MEAN})")
+        if mode == "full":
+            fails.append(f"light map mean {lit_mean:.4f} is black (under {DARK_MEAN})")
+        else:
+            warns.append("bounce-only light map is very dark: little nearby surface to bounce from "
+                         f"(mean {lit_mean:.4f}, under {DARK_MEAN})")
     if ao_mean < DARK_MEAN:
-        reasons.append(f"AO mean {ao_mean:.4f} is black (under {DARK_MEAN})")
+        fails.append(f"AO mean {ao_mean:.4f} is black (under {DARK_MEAN})")
     covered = ao[ao > 0.0]
     if covered.size == 0:
-        return reasons, None, None
+        return fails, warns, None, None
     cov_mean, cov_std = float(covered.mean()), float(covered.std())
     if cov_mean > FLAT_MEAN and cov_std < FLAT_SPREAD:
-        reasons.append(f"AO is flat (covered texels mean {cov_mean:.4f}, spread {cov_std:.4f}): no occlusion baked")
-    return reasons, round(cov_mean, 4), round(cov_std, 4)
+        fails.append(f"AO is flat (covered texels mean {cov_mean:.4f}, spread {cov_std:.4f}): no occlusion baked")
+    return fails, warns, round(cov_mean, 4), round(cov_std, 4)
 
 
 # ---------- main ----------
@@ -597,7 +605,7 @@ def main():
     sc.world.light_settings.distance = float(opts["ao_distance"])
 
     report = {}
-    failures, dark_allowed = [], []
+    failures, dark_allowed, warned = [], [], []
     bake_total = 0.0
     mode = opts["mode"]
     log(f"mode {mode}: light map {' + '.join(LIGHT_PASSES[mode]).lower()}"
@@ -613,7 +621,7 @@ def main():
         t_ao = bake_pass(o, "ao", uv[name][1], margin_px)
         clear_bake_nodes(o)
         ao = read_linear(ao_img, s)[:, :, 0]
-        reasons, cov_mean, cov_std = dark_check(lit, ao)
+        fails, warns, cov_mean, cov_std = dark_check(lit, ao, mode)
         write_png(out / f"{fn}_lightmap.png", to_srgb8(lit), gray=False)
         write_png(out / f"{fn}_ao.png", to_linear8(ao), gray=True)
         # three.js divides a lightmap by pi in its diffuse term; the gain is already in the PNG.
@@ -626,13 +634,16 @@ def main():
                             lightmap_mean=round(float(lit.mean()), 4),
                             lightmap_clipped_pct=round(100.0 * float((lit >= 0.999).mean()), 2),
                             ao_mean=round(float(ao.mean()), 4), ao_covered_mean=cov_mean,
-                            ao_covered_std=cov_std, dark=reasons)
-        if reasons:
+                            ao_covered_std=cov_std, dark=fails, warn=warns)
+        for w in warns:
+            log(f"BAKE WARNING {name}: {w}")
+            warned.append(f"{name}: {w}")
+        if fails:
             if name in opts["allow_dark"]:
                 dark_allowed.append(name)
-                log(f"BAKE WARNING {name} allowed by allow_dark: {'; '.join(reasons)}")
+                log(f"BAKE WARNING {name} allowed by allow_dark: {'; '.join(fails)}")
             else:
-                failures.append(f"{name}: {'; '.join(reasons)}")
+                failures.append(f"{name}: {'; '.join(fails)}")
         bake_total += t_lm + t_ao
         for img in (lm_img, ao_img):
             bpy.data.images.remove(img)
@@ -645,7 +656,7 @@ def main():
     if typo:
         failures.append(f"allow_dark names no mesh in the input: {typo}")
     common = dict(mode=mode, input=src.name, device=device, device_names=device_names, meshes=len(meshes),
-                  allow_dark=opts["allow_dark"], dark_allowed=dark_allowed,
+                  allow_dark=opts["allow_dark"], dark_allowed=dark_allowed, warnings=warned,
                   opaque_for_bake=[r["mat"].name for r in swapped], maps=report)
     if failures:
         summary = dict(common, status="failed", failures=failures)
