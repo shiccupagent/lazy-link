@@ -24,7 +24,9 @@ check "key or token" 'ssh-(ed25519|rsa) AAAA|BEGIN [A-Z ]*PRIVATE KEY|\bhf_[A-Za
 if [ -f "$WORDS" ]; then
   while IFS= read -r w; do
     [ -z "$w" ] || [[ "$w" == \#* ]] && continue
-    hits=$(echo "$files" | grep -v '^$' | tr '\n' '\0' | xargs -0 grep -nIiF -- "$w" 2>/dev/null || true)
+    # the public account a Sponsor link points at is meant to be seen: FUNDING.yml and sponsor links only
+    hits=$(echo "$files" | grep -v '^$' | tr '\n' '\0' | xargs -0 grep -nIiF -- "$w" 2>/dev/null \
+      | grep -vE '^\.github/FUNDING\.yml:[0-9]+:github: \[|github\.com/sponsors/' || true)
     names=$(echo "$files" | grep -iF -- "$w" || true)
     if [ -n "$hits$names" ]; then echo "== private word (line $(grep -nxF -- "$w" "$WORDS" | cut -d: -f1) of your list)"; echo "$hits$names" | cut -d: -f1,2 | sort -u; fail=1; fi
   done < "$WORDS"
