@@ -184,14 +184,15 @@ def main():
         (SCRATCH / d).mkdir(parents=True, exist_ok=True)
     log = open(OUT / "comfy.log", "w")
     t_start = time.time()
-    # a PC without an NVIDIA GPU (or a CPU-only torch) needs --cpu, or ComfyUI stops at import
+    # a PC without an NVIDIA GPU (or a CPU-only torch) needs --cpu, or ComfyUI stops at import; a Mac's Apple GPU is MPS
     cuda = subprocess.run([str(PYTHON), "-c", "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"]).returncode == 0
+    mps = not cuda and subprocess.run([str(PYTHON), "-c", "import torch, sys; sys.exit(0 if torch.backends.mps.is_available() else 1)"]).returncode == 0
     comfy = subprocess.Popen(
         [str(PYTHON), "-u", "main.py", "--listen", "127.0.0.1", "--port", str(PORT),
          "--disable-all-custom-nodes", "--disable-auto-launch", "--output-directory", str(SCRATCH / "out"),
-         "--temp-directory", str(SCRATCH / "temp"), "--user-directory", str(SCRATCH / "user")] + ([] if cuda else ["--cpu"]),
+         "--temp-directory", str(SCRATCH / "temp"), "--user-directory", str(SCRATCH / "user")] + ([] if cuda or mps else ["--cpu"]),
         cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
-    print("ComfyUI on " + ("the GPU" if cuda else "the CPU (no CUDA torch: slow)"), flush=True)
+    print("ComfyUI on " + ("the GPU" if cuda else "the Apple GPU (MPS)" if mps else "the CPU (no CUDA torch: slow)"), flush=True)
     try:
         for _ in range(240):
             if comfy.poll() is not None:

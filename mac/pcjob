@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""pcjob - send work to your big computer (Windows or Linux) and bring the results back.
+"""pcjob - send work to your big computer (Windows, Linux or an Apple Silicon Mac) and bring the results back.
 
-A job is a local folder with a job.ps1 (Windows PC) or a job.sh (Linux PC) in it, plus any inputs.
+A job is a local folder with a job.ps1 (Windows PC) or a job.sh (Linux or Mac) in it, plus any inputs.
 On the PC the script runs in a copy of that folder; whatever it writes to $RENDER_OUT comes back.
-$RENDER_ROOT is the PC's work folder (C:/render, or /srv/lazy-link on Linux). On Windows,
+$RENDER_ROOT is the PC's work folder (C:/render, /srv/lazy-link on Linux, or the render account's
+lazy-link folder on a Mac). On Windows,
 $env:FFMPEG and $env:BLENDER point at those tools when the PC has them. The PC's runner
-(pc/runner.ps1 or linux/runner.sh) runs it outside SSH, so closing the Mac's connection or
+(pc/runner.ps1, linux/runner.sh or macpc/runner.sh) runs it outside SSH, so closing the Mac's connection or
 the Mac sleeping never kills a job.
 
-  pcjob pair PC_ADDRESS [--os linux]   first time: check the PC's fingerprint, write ~/.ssh/config + config.json
+  pcjob pair PC_ADDRESS [--os windows|linux|mac]   first time: check the PC's fingerprint, write ~/.ssh/config + config.json
   pcjob run DIR [--name N] [--timeout S] [--wait] [--fetch DEST] [--cheap]   send a job (wakes the PC)
   pcjob cheap                    the cheap-electricity hours (live prices if cheap_feed is set), and whether they're on now
   pcjob status ID | list | log ID | wait ID [--max S] | fetch ID DEST | cancel ID | rm ID
@@ -16,7 +17,7 @@ the Mac sleeping never kills a job.
   pcjob ping | info | wake | sleep | push-runner   (sleep refuses while someone is using the PC)
 
 Every remote step is a named operation below with two strings: the PowerShell one (Windows)
-and the sh one (Linux). pc_os in config.json picks which one runs.
+and the sh one (Linux and Mac). pc_os in config.json picks which one runs.
 Settings: config.json beside this repo's README (made by `pcjob pair`; see config.example.json).
 """
 import argparse, base64, hashlib, ipaddress, json, os, re, shlex, socket, subprocess, sys, tarfile, tempfile, time
@@ -33,23 +34,53 @@ if not KEY.exists() and (Path.home() / ".ssh" / "render-link").exists():   # the
     KEY, KNOWN = Path.home() / ".ssh" / "render-link", Path.home() / ".ssh" / "known_hosts_render_link"
 CFG = json.loads(CONFIG.read_text(encoding="utf-8-sig")) if CONFIG.exists() else {}
 HOST = CFG.get("ssh_host", "lazy-pc")
-OS_CHOICES = ("windows", "linux")
+OS_CHOICES = ("windows", "linux", "mac")
+OS_LABEL = {"windows": "Windows", "linux": "Linux", "mac": "Mac"}
+PC_DIR = {"windows": "pc", "linux": "linux", "mac": "macpc"}   # this repo's folder for each OS's runner and checks
+SETUP_HINT = {"windows": "Run pc/Setup-PC.cmd on the PC again.",
+              "linux": "Run linux/setup-linux.sh on the PC again.",
+              "mac": "Run macpc/setup-mac.sh on the Mac again (it asks for an admin password)."}
+MAC_HOMES = "/Users"   # the render account's home is <this>/render; its work folder is <home>/lazy-link
 OS_NAME = CFG.get("pc_os", "windows")
 if OS_NAME not in OS_CHOICES:
-    sys.exit(f"pcjob: pc_os in config.json must be windows or linux, not {OS_NAME!r}")
-LINUX = OS_NAME == "linux"
-ROOT = CFG.get("pc_root", "/srv/lazy-link" if LINUX else "C:/render")
-SSH_USER = "lazy" if LINUX else "render"
+    sys.exit(f"pcjob: pc_os in config.json must be windows, linux or mac, not {OS_NAME!r}")
+
+
+def default_root(os_name):
+    return {"linux": "/srv/lazy-link", "mac": MAC_HOMES + "/render/lazy-link"}.get(os_name, "C:/render")
+
+
+def default_user(os_name):
+    return "lazy" if os_name == "linux" else "render"
+
+
+LINUX, MAC = OS_NAME == "linux", OS_NAME == "mac"
+POSIX = OS_NAME in ("linux", "mac")   # sh job scripts: Linux and Mac share them where the tools agree
+ROOT = CFG.get("pc_root", default_root(OS_NAME))
+SSH_USER = default_user(OS_NAME)
 q = shlex.quote
 SAFE_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
 
 
 def set_os(os_name):
     """Switch the target OS (pair --os): the work folder and ssh user follow it."""
-    global OS_NAME, LINUX, ROOT, SSH_USER
-    OS_NAME, LINUX = os_name, os_name == "linux"
-    ROOT = "/srv/lazy-link" if LINUX else "C:/render"
-    SSH_USER = "lazy" if LINUX else "render"
+    global OS_NAME, LINUX, MAC, POSIX, ROOT, SSH_USER
+    OS_NAME = os_name
+    LINUX, MAC, POSIX = os_name == "linux", os_name == "mac", os_name in ("linux", "mac")
+    ROOT = default_root(os_name)
+    SSH_USER = default_user(os_name)
+
+
+def stat_cmd(path, what):
+    """A POSIX stat printing a file's mtime (epoch seconds) or size (bytes): GNU stat on Linux, BSD stat on a Mac."""
+    if MAC:
+        return f"stat -f {'%m' if what == 'mtime' else '%z'} {path}"
+    return f"stat -c {'%Y' if what == 'mtime' else '%s'} {path}"
+
+
+def iso_now():
+    """A date-time string for the ready file: GNU date has -Iseconds, BSD date does not."""
+    return "date +%Y-%m-%dT%H:%M:%S%z" if MAC else "date -Iseconds"
 
 
 def need_config():
@@ -87,7 +118,10 @@ def sh(script, check=True, timeout=120):
 def on_pc(op, *args, check=True, timeout=120):
     """One named remote operation: op(*args) gives (PowerShell, sh); this OS's string runs."""
     win, lin = op(*args)
-    return sh(lin, check, timeout) if LINUX else ps(win, check, timeout)
+    if POSIX:
+        # the Mac's login shell is zsh, which fails on a glob with no match; /bin/sh behaves like Linux's sh here
+        return sh("/bin/sh -c " + q(lin) if MAC else lin, check, timeout)
+    return ps(win, check, timeout)
 
 
 def scp(src, dst, timeout=3600):
@@ -138,8 +172,9 @@ def wake(max_s=120):
 # ---- named remote operations: each returns (PowerShell for Windows, sh for Linux) ----
 
 def op_heartbeat_age():
+    b = ROOT + "/runner.heartbeat"
     return (f"$b='{ROOT}/runner.heartbeat'; if (Test-Path $b) {{ [int]((Get-Date)-(Get-Item $b).LastWriteTime).TotalSeconds }} else {{ -1 }}",
-            "b=" + q(ROOT + "/runner.heartbeat") + '; if [ -e "$b" ]; then echo $(( $(date +%s) - $(stat -c %Y "$b") )); else echo -1; fi')
+            "b=" + q(b) + '; if [ -e "$b" ]; then echo $(( $(date +%s) - $(' + stat_cmd('"$b"', 'mtime') + ') )); else echo -1; fi')
 
 
 def op_status(job_id):
@@ -160,7 +195,7 @@ def op_mark_ready(job_id, timeout_s):
     d = ROOT + "/jobs/" + job_id
     return (f"Set-Content '{ROOT}/jobs/{job_id}/job.json' '{js}'; "
             f"Set-Content '{ROOT}/jobs/{job_id}/ready' (Get-Date -Format o)",
-            "printf '%s\\n' " + q(js) + " > " + q(d + "/job.json") + " && date -Iseconds > " + q(d + "/ready"))
+            "printf '%s\\n' " + q(js) + " > " + q(d + "/job.json") + " && " + iso_now() + " > " + q(d + "/ready"))
 
 
 def op_list_jobs():
@@ -199,7 +234,7 @@ def op_remove_job(job_id):
 def op_media_size(name):
     f = ROOT + "/media/" + name
     return (f"$f='{ROOT}/media/{name}'; if (Test-Path $f) {{ (Get-Item $f).Length }} else {{ -1 }}",
-            "f=" + q(f) + '; if [ -f "$f" ]; then stat -c %s "$f"; else echo -1; fi')
+            "f=" + q(f) + '; if [ -f "$f" ]; then ' + stat_cmd('"$f"', 'size') + '; else echo -1; fi')
 
 
 def op_mkdir_media():
@@ -219,15 +254,24 @@ def op_has_media(name):
 
 
 def op_in_use():
-    # Linux: someone is "using" the PC when a user has an active graphical or console session
-    # (the lazy service runs with no login session, so it never counts).
+    # Someone is "using" the PC when a real user is signed in and active. The render account and the
+    # service never count. Output: "<in use 0|1> <at lock screen 0|1>"; on Windows it's the desktop check.
     lin = ("e=0; for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do "
            "a=$(loginctl show-session \"$s\" -p Active --value); c=$(loginctl show-session \"$s\" -p Class --value); "
            "t=$(loginctl show-session \"$s\" -p Type --value); "
            "if [ \"$a\" = yes ] && [ \"$c\" = user ] && { [ \"$t\" = x11 ] || [ \"$t\" = wayland ] || [ \"$t\" = tty ]; }; "
            "then e=1; fi; done; echo \"$e 0\"")
+    # Mac: the console owner is a real user (not root, render or a system _account), and either the
+    # keyboard/mouse was used in the last 15 minutes or an app is holding the display awake.
+    # If the idle time can't be read, the Mac counts as in use (sleep is refused, which is the safe side).
+    mac = ("e=0; u=$(stat -f %Su /dev/console 2>/dev/null); "
+           "case \"$u\" in ''|root|render|_*) ;; *) "
+           "ns=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ {print $NF; exit}'); "
+           "idle=$(( ${ns:-0} / 1000000000 )); "
+           "if [ \"$idle\" -lt 900 ] || pmset -g assertions 2>/dev/null | grep -q PreventUserIdleDisplaySleep; then e=1; fi;; esac; "
+           "echo \"$e 0\"")
     return ("$e = @(Get-Process explorer -EA SilentlyContinue | Where-Object SessionId -gt 0).Count; "
-            "$l = @(Get-Process LogonUI -EA SilentlyContinue).Count; \"$e $l\"", lin)
+            "$l = @(Get-Process LogonUI -EA SilentlyContinue).Count; \"$e $l\"", mac if MAC else lin)
 
 
 def op_busy_jobs():
@@ -240,8 +284,9 @@ def op_busy_jobs():
 def op_sleep(hib):
     script = ("Add-Type -Namespace RL -Name Pwr -MemberDefinition '[DllImport(\"powrprof.dll\")] "
               "public static extern bool SetSuspendState(bool h, bool f, bool d);'; [void][RL.Pwr]::SetSuspendState($" + ("true" if hib else "false") + ", $false, $false)")
-    # Linux: the sudoers line from setup-linux.sh allows exactly this command, and nothing else
-    return (script, "sudo -n systemctl suspend")
+    # Linux: the sudoers line from setup-linux.sh allows exactly this command, and nothing else.
+    # Mac: the sudoers line from setup-mac.sh allows exactly "pmset sleepnow", and nothing else.
+    return (script, "sudo -n /usr/bin/pmset sleepnow" if MAC else "sudo -n systemctl suspend")
 
 
 def op_info():
@@ -482,9 +527,9 @@ def wait_for_cheap(force=False):
 
 def cmd_run(a):
     src = Path(a.dir).resolve()
-    script = "job.sh" if LINUX else "job.ps1"
+    script = "job.sh" if POSIX else "job.ps1"
     if not (src / script).is_file():
-        sys.exit(f"pcjob: {src}/{script} not found (this PC runs {'Linux' if LINUX else 'Windows'} jobs: they need a {script})")
+        sys.exit(f"pcjob: {src}/{script} not found (this PC runs {OS_LABEL[OS_NAME]} jobs: they need a {script})")
     name = "".join(c if c.isalnum() or c in "-_" else "-" for c in (a.name or src.name))[:40]
     wait_for_cheap(getattr(a, "cheap", False))
     job_id = time.strftime("%Y%m%d-%H%M%S-") + name
@@ -492,7 +537,7 @@ def cmd_run(a):
     ok, age = runner_alive()
     if not ok:
         sys.exit(f"pcjob: the PC's job runner is not running (heartbeat age {age}s). "
-                 + ("Run linux/setup-linux.sh on the PC again." if LINUX else "Run pc/Setup-PC.cmd on the PC again."))
+                 + SETUP_HINT[OS_NAME])
     with tempfile.TemporaryDirectory() as td:
         tar = Path(td) / "in.tar"
         with tarfile.open(tar, "w") as t:
@@ -637,8 +682,8 @@ def release(woke):
 
 def cmd_sleep(a):
     hib = bool(a and a.hibernate)
-    if hib and LINUX:
-        sys.exit("pcjob: hibernate is a Windows option; a Linux PC sleeps with: pcjob sleep")
+    if hib and OS_NAME != "windows":
+        sys.exit("pcjob: hibernate is a Windows option; a Linux or Mac PC sleeps with: pcjob sleep")
     if in_use() and not (a and a.nobody_there):
         sys.exit("pcjob: someone is signed in and using the PC (unlocked); not putting it to sleep")
     busy = on_pc(op_busy_jobs)
@@ -655,10 +700,10 @@ def cmd_sleep(a):
 
 
 def cmd_push_runner(a):
-    f = "runner.sh" if LINUX else "runner.ps1"
+    f = "runner.ps1" if OS_NAME == "windows" else "runner.sh"
     on_pc(op_mkdir_runner)
     # copy then move, so a running runner never sees a half-written file
-    scp(str(REPO / ("linux" if LINUX else "pc") / f), f"{HOST}:{ROOT}/runner/{f}.new")
+    scp(str(REPO / PC_DIR[OS_NAME] / f), f"{HOST}:{ROOT}/runner/{f}.new")
     on_pc(op_move_runner, f)
     print("runner pushed (a running runner restarts itself on the new copy)")
 

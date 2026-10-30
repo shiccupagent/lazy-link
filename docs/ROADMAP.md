@@ -18,6 +18,9 @@ does the heavy lifting with no windows, and goes back to sleep.
   It removes only Lazy Link's own files: its account's temp files, old finished jobs and old logs.
 - **Linux as the big computer:** setup, undo, job runner, `check.py`, pictures, sound, chat and speech
   (ComfyUI, llama.cpp, Whisper). Tested on CPU in a virtual machine; see [LINUX-PC.md](LINUX-PC.md).
+- **Apple Silicon Mac as the big computer:** setup, undo, job runner, `check.py`, and the picture, sound, chat and speech
+  scripts (PyTorch on the GPU, llama.cpp with Metal, Whisper on the CPU). Tested on one Mac without a second machine;
+  the real setup run, the models and wake from sleep still to test. See [MAC-PC.md](MAC-PC.md).
 - **Guides:** [BIOS and wake](BIOS-AND-WAKE.md), and an optional [remote desktop](REMOTE-DESKTOP.md) guide.
 
 ## Next
@@ -26,7 +29,6 @@ does the heavy lifting with no windows, and goes back to sleep.
 2. **Any big computer:**
    - **Linux + NVIDIA:** a real Linux PC with an NVIDIA card: the GPU paths (ComfyUI and llama.cpp on CUDA,
      Whisper on the GPU), the 30 GB chat models and 3D. Until then it is tested on CPU only.
-   - **Apple Silicon Mac as the big computer:** ComfyUI and llama.cpp use Metal; launchd runs the runner.
    - **AMD cards:** ROCm on Linux, DirectML/ZLUDA on Windows. Speed and model support vary, so `check.py` rates them separately.
    - Each one is done only when it has passed on real hardware.
 3. **More than one big computer (a home AI cluster):**

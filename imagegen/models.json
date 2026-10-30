@@ -18,6 +18,10 @@
    "_doc": "same release, Linux builds (the Linux PC's job scripts read these; sha256 from the release's .sha256 files)",
    "x86_64": {"url": "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-unknown-linux-gnu.tar.gz", "sha256": "b4dfaef47d491a7296981f8374a4595f55dbf84e8937c8ecd2983574d8bb3da6", "size": 17249236},
    "aarch64": {"url": "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-aarch64-unknown-linux-gnu.tar.gz", "sha256": "5231be65f496304623895dacdbf1de8504fec90303684bdf05805aa34414dd21", "size": 16478994}
+  },
+  "mac": {
+   "_doc": "same release, macOS builds (the Mac's job scripts read these; sha256 from the release's GitHub asset digests)",
+   "arm64": {"url": "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-aarch64-apple-darwin.tar.gz", "sha256": "0c4346de7abdb49495b393b9ec809fe387aa43e586be20fecb972216c1e71732", "size": 14650202}
   }
  },
  "library": "models/comfy",

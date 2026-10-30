@@ -2,7 +2,8 @@
 
 This repo lets you (Claude, on the small computer: Mac, or Windows/Linux) run AI jobs on the user's big PC's GPU.
 The main path is Mac → Windows. A Linux big PC (`"pc_os": "linux"`) runs `job.sh` jobs, check.py, imagegen and local
-(tested on CPU in a VM; the CUDA path is untested until a real Linux GPU PC). `check.py --tidy` is Windows-only. Setup steps: README.md; other mixes: README "Other computers".
+(tested on CPU in a VM; the CUDA path is untested until a real Linux GPU PC). An Apple Silicon Mac (`"pc_os": "mac"`,
+macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (docs/MAC-PC.md). `check.py --tidy` is Windows-only. Setup steps: README.md; other mixes: README "Other computers".
 
 ## Commands
 - `./check.py [--setup]`: what the PC has, what to fix, which models fit (only reads the PC).

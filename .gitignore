@@ -3,6 +3,7 @@ config.json
 .cheap-feed-cache.json
 pc/mac-key.pub
 linux/mac-key.pub
+macpc/mac-key.pub
 reports/
 __pycache__/
 .DS_Store

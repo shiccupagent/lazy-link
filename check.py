@@ -47,15 +47,20 @@ def rate(need, vram, ram):
 
 def plan(c):
     gpu = max(c.get("gpus") or [{}], key=lambda g: g.get("vram_gb", 0))
-    vram, ram = gpu.get("vram_gb", 0), c.get("ram_gb") or 0
+    ram = c.get("ram_gb") or 0
+    # A Mac chip shares its memory with the system: about 70% of the RAM can hold a model, and none of it is spare on top.
+    if gpu.get("unified_memory"):
+        vram, spare = round(0.7 * ram, 1), 0
+    else:
+        vram, spare = gpu.get("vram_gb", 0), ram
     rows, images, recipes, local = [], [], [], False
     for k, m in MODELS["models"].items():
-        rows.append((m["label"], "images", image_need(m), rate(image_need(m), vram, ram), k))
+        rows.append((m["label"], "images", image_need(m), rate(image_need(m), vram, spare), k))
     for k, r in MODELS["recipes"].items():
         if isinstance(r, dict):
-            rows.append((r["label"], "sound" if k != "mesh" else "3D", recipe_need(r), rate(recipe_need(r), vram, ram), k))
+            rows.append((r["label"], "sound" if k != "mesh" else "3D", recipe_need(r), rate(recipe_need(r), vram, spare), k))
     for k, (label, _, need) in LOCAL.items():
-        rows.append((label, "text", need, rate(need, vram, ram), k))
+        rows.append((label, "text", need, rate(need, vram, spare), k))
     ok = {r[4]: r[3] for r in rows}
     # Pictures: the best model that runs fast, else the lightest that runs at all.
     for k in ("krea2", "zimage", "klein"):
@@ -92,21 +97,32 @@ def health(c, p):
         out.append(("!", "Windows 10 stopped getting free security updates in October 2025. Upgrade to Windows 11 if the PC "
                          "allows it, or sign up for Microsoft's Extended Security Updates."))
     lu = c.get("last_update")
-    linux = imagegen.load_pcjob().LINUX
+    pc = imagegen.load_pcjob()
+    linux, mac = pc.LINUX, pc.MAC
     if not lu:
         out.append(("·", "Couldn't read the system update history (/var/log/apt/history.log). If the PC sat unused for a while, "
                          "install its updates (sudo apt update && sudo apt upgrade) until there is nothing left to install."
                      if linux else
+                     "Couldn't read the macOS update history. If the Mac sat unused for a while, run Software Update "
+                     "(System Settings > General > Software Update) until it says your Mac is up to date."
+                     if mac else
                      "Couldn't read the Windows Update history. If the PC sat unused for a while, run Windows Update "
                      "(Settings > Windows Update) until it says you're up to date."))
     else:
         age = (time.time() - time.mktime(time.strptime(lu, "%Y-%m-%d"))) / 86400
-        label = "Last system update" if linux else "Last Windows update"
+        label = "Last system update" if linux else "Last macOS update" if mac else "Last Windows update"
         fix = ("Install its updates first (sudo apt update && sudo apt upgrade), restart, and run it again until there is nothing left to install."
                if linux else
+               "Install its updates first (System Settings > General > Software Update), restart, and run it again until your Mac is up to date."
+               if mac else
                "Run Windows Update first (Settings > Windows Update), restart, and run it again until it says you're up to date.")
         out.append(("✔" if age < 45 else "!", f"{label}: {lu}" + ("" if age < 45 else f" ({int(age)} days ago). {fix}")))
-    if not gpu.get("name"):
+    if mac:
+        if gpu.get("name"):
+            out.append(("✔", f"{gpu['name']}: shares {c.get('ram_gb') or 0:g} GB memory with the system; about {p['vram']:g} GB of it can hold models"))
+        else:
+            out.append(("✘", "Couldn't read the Mac's chip (system_profiler SPDisplaysDataType)."))
+    elif not gpu.get("name"):
         out.append(("✘", "No NVIDIA graphics card found (or its driver isn't installed). Lazy Link needs one for now: "
                          "install the driver from nvidia.com/drivers, then check again."))
     else:
@@ -117,7 +133,7 @@ def health(c, p):
             "" if mark == "✔" else ". Update the driver: NVIDIA App, or nvidia.com/drivers (Game Ready or Studio both work).")))
     ram = c.get("ram_gb") or 0
     out.append(("✔" if ram >= 16 else "!", f"{ram:g} GB memory" + ("" if ram >= 16 else " (16 GB or more makes big models much smoother)")))
-    root = imagegen.load_pcjob().ROOT or "C:/render"
+    root = pc.ROOT or "C:/render"
     disks = {d["drive"].upper(): d for d in c.get("disks") or []}
     if root.startswith("/"):   # Linux: the disk is the longest mount point that holds the work folder
         disks = {d["drive"]: d for d in c.get("disks") or []}
@@ -132,7 +148,7 @@ def health(c, p):
         roomy = [f"{k} ({d['free_gb']} GB free)" for k, d in disks.items() if d["free_gb"] >= p["download"] + 20]
         out.append(("!", f"Only {free} GB free on {root}; the recommended models need about {p['download']:.0f} GB plus room to work. "
                          + (f"Models can live on {', '.join(roomy)}: see extra_model_folders in config.example.json."
-                            if roomy else "Free some space (Settings > System > Storage > Cleanup recommendations).")))
+                            if roomy else "Free some space (System Settings > General > Storage on a Mac; Settings > System > Storage on Windows).")))
     nets = c.get("network") or []
     cable = any(n["kind"] == "cable" and n["connected"] for n in nets)
     out.append(("✔" if cable else "!", "Network cable connected" if cable else
@@ -142,8 +158,12 @@ def health(c, p):
                          "Control Panel > Power Options > Choose what the power buttons do (docs/BIOS-AND-WAKE.md)."))
     w = c.get("wake_on_magic_packet")
     if w is not None:
-        out.append(("✔" if w else "!", "Network card can wake the PC" if w else
-                    "The network card's \"Wake on Magic Packet\" is off (docs/BIOS-AND-WAKE.md shows where to turn it on)."))
+        if mac:
+            out.append(("✔" if w else "!", "Wake for network access is on" if w else
+                        "Wake for network access is off. Run macpc/setup-mac.sh again (it asks for an admin password) to turn it on."))
+        else:
+            out.append(("✔" if w else "!", "Network card can wake the PC" if w else
+                        "The network card's \"Wake on Magic Packet\" is off (docs/BIOS-AND-WAKE.md shows where to turn it on)."))
     s = c.get("sleep_after_min")
     if s == 0:
         out.append(("·", "The PC never sleeps on its own. Lazy Link puts it back to sleep after jobs it woke it for."))
@@ -233,7 +253,7 @@ def freed_report(t):
 
 
 def tidy(a):
-    if imagegen.load_pcjob().LINUX:
+    if imagegen.load_pcjob().POSIX:
         sys.exit("./check.py --tidy works on the Windows PC for now.")
     script = (HERE / "pc" / "tidy.ps1").read_text(encoding="utf-8")
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -285,8 +305,9 @@ def main():
         c = json.loads(Path(a.src).read_text(encoding="utf-8-sig"))
     else:
         out = HERE / "reports" / ("check-" + time.strftime("%Y%m%d-%H%M%S"))
-        if imagegen.load_pcjob().LINUX:   # a Linux PC runs the same check as a shell script
-            imagegen.send([], "", {}, "check", out, 600, sh=(HERE / "linux" / "check.sh").read_text())
+        pc = imagegen.load_pcjob()
+        if pc.POSIX:   # a Linux or Mac PC runs the same check as a shell script from its own folder
+            imagegen.send([], "", {}, "check", out, 600, sh=(HERE / pc.PC_DIR[pc.OS_NAME] / "check.sh").read_text())
         else:
             imagegen.send([], (HERE / "pc" / "check.ps1").read_text(), {}, "check", out, 600)
         c = json.loads((out / "check.json").read_text(encoding="utf-8-sig"))

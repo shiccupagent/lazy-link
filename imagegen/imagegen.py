@@ -33,7 +33,7 @@ $py = Join-Path $env:RENDER_ROOT ((Get-Content models.json -Raw | ConvertFrom-Js
 exit $LASTEXITCODE
 """
 
-# the same job on a Linux PC (job.sh): ComfyUI's own venv python runs batch.py
+# the same job on a POSIX PC (job.sh, Linux or Mac): ComfyUI's own venv python runs batch.py
 RUN_SH = r"""set -eu -o pipefail
 [ -n "${RENDER_ROOT:-}" ] || { echo "RENDER_ROOT is not set (run this as a job)" >&2; exit 3; }
 PY="$RENDER_ROOT/$(python3 -c 'import json; print(json.load(open("models.json"))["comfy"]["venv"])')/bin/python"
@@ -41,15 +41,18 @@ PY="$RENDER_ROOT/$(python3 -c 'import json; print(json.load(open("models.json"))
 exec "$PY" -u batch.py
 """
 
-LINUX_DIR = HERE / "linux"   # job.sh scripts for a Linux PC (the .ps1 files stay for Windows)
-
-
 def load_pcjob():
     loader = importlib.machinery.SourceFileLoader("pcjob", str(REPO / "mac" / "pcjob"))
     spec = importlib.util.spec_from_loader("pcjob", loader)
     mod = importlib.util.module_from_spec(spec)
     loader.exec_module(mod)
     return mod
+
+
+def posix_script(name, base=HERE):
+    """job.sh text for a POSIX big computer: <base>/<OS_NAME>/<name> (linux, mac). None on Windows (it uses the .ps1)."""
+    pc = load_pcjob()
+    return (base / pc.OS_NAME / name).read_text() if pc.POSIX else None
 
 
 def model_keys(s):
@@ -61,10 +64,10 @@ def model_keys(s):
 
 
 def send(files, ps1, want, name, out, timeout, sh=None):
-    """Run a job on the PC: ps1 is the Windows script, sh the Linux job.sh. Every command passes both."""
+    """Run a job on the PC: ps1 is the Windows script, sh the POSIX job.sh (Linux or Mac). Every command passes both."""
     pc = load_pcjob()
-    if pc.LINUX and sh is None:   # refuse before pc.wake(): nothing is woken for a command with no Linux script
-        sys.exit("imagegen: this command has no Linux script yet")
+    if pc.POSIX and sh is None:   # refuse before pc.wake(): nothing is woken for a command with no POSIX script
+        sys.exit(f"imagegen: this command has no {pc.OS_NAME} script yet")
     woke = pc.wake()
     with tempfile.TemporaryDirectory() as td:
         job = Path(td) / "job"
@@ -73,7 +76,7 @@ def send(files, ps1, want, name, out, timeout, sh=None):
             src, rel = (f, Path(f).name) if not isinstance(f, tuple) else f
             (job / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(src, job / rel)
-        (job / ("job.sh" if pc.LINUX else "job.ps1")).write_text(sh if pc.LINUX else ps1)
+        (job / ("job.sh" if pc.POSIX else "job.ps1")).write_text(sh if pc.POSIX else ps1)
         json.dump(want, open(job / "want.json", "w"))
         # the PC-side scripts read your extra model folders from here (config.json, never anything else)
         json.dump({"extra_model_folders": pc.CFG.get("extra_model_folders", {})}, open(job / "link.json", "w"))
@@ -146,7 +149,7 @@ def main():
         ps1 = ("$ErrorActionPreference = 'Continue'\n& $env:BLENDER -b --factory-startup -P render_glb.py -- glb $env:RENDER_OUT 2>&1 "
                "| ForEach-Object { \"$_\" } | Select-String 'rendered|Error|Traceback'\nexit $LASTEXITCODE\n")
         send([HERE / "pc" / "render_glb.py"] + [(g, f"glb/{g.name}") for g in glbs], ps1, [], "imagegen-preview", d / "preview", 1800,
-             sh=(LINUX_DIR / "preview.sh").read_text())
+             sh=posix_script("preview.sh"))
     elif a.cmd == "convert":
         out = HERE / "recipes"
         out.mkdir(exist_ok=True)
@@ -168,14 +171,14 @@ def main():
     elif a.cmd == "setup":
         out = REPO / "reports" / ("setup-" + time.strftime("%Y%m%d-%H%M%S"))
         send([HERE / "models.json"], (HERE / "pc" / "setup-comfy.ps1").read_text(), [], "imagegen-setup", out, 3600,
-             sh=(LINUX_DIR / "setup.sh").read_text())
+             sh=posix_script("setup.sh"))
         print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
     else:
         files = {MODELS["models"][k][part] for k in model_keys(a.models) for part in ("unet", "clip", "vae")} | {MODELS["cutout"]["model"]}
         files = sorted(files | {f for r in a.recipes.split(",") if r for f in MODELS["recipes"][r]["files"]})
         out = REPO / "reports" / ("fetch-" + time.strftime("%Y%m%d-%H%M%S"))
         send([HERE / "models.json"], (HERE / "pc" / "fetch.ps1").read_text(),
-             files, "imagegen-fetch", out, 4 * 3600, sh=(LINUX_DIR / "fetch.sh").read_text())
+             files, "imagegen-fetch", out, 4 * 3600, sh=posix_script("fetch.sh"))
         print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
 
 
