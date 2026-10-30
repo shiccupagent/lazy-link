@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # runner.sh - the Linux job runner. Same protocol as pc/runner.ps1 (the Windows one).
-# setup-linux.sh copies it to /srv/lazy-link/runner/runner.sh; the lazy-link-runner systemd
-# service runs it as the hidden 'lazy' user (Restart=always), outside any SSH session, so a
+# setup-linux.sh copies it to /srv/lazylink/runner/runner.sh; the lazy-link-runner systemd
+# service runs it as the hidden 'lazylink' user (Restart=always), outside any SSH session, so a
 # dropped link never kills a job.
 #
-# A job is a folder /srv/lazy-link/jobs/<id>/ that the Mac fills (mac/pcjob):
+# A job is a folder /srv/lazylink/jobs/<id>/ that the Mac fills (mac/pcjob):
 #   in.tar    the job folder from the Mac; must contain job.sh
 #   job.json  {"timeout_s": 3600}
 #   ready     written last; the runner only picks up folders that have it
 # The runner unpacks in.tar into work/, runs job.sh there (env RENDER_OUT = the out/ folder,
-# RENDER_ROOT = /srv/lazy-link, FFMPEG and BLENDER when found), keeps the machine awake while it
+# RENDER_ROOT = /srv/lazylink, FFMPEG and BLENDER when found), keeps the machine awake while it
 # runs, ends the job's whole process group on timeout or when a 'cancel' file appears, then packs
 # out/ into out.tar. status.json is the state: queued -> running -> done | failed | timeout | cancelled.
 # One job at a time, oldest first. When this file changes on disk the runner exits and systemd

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # undo-linux.sh - backs out setup-linux.sh, using the state file it wrote, and then checks each step is gone.
 #   sudo bash undo-linux.sh [--dry-run] [--remove-work-folder]
-# Keeps /srv/lazy-link/models (the downloaded models, often tens of GB) unless --remove-work-folder is given.
+# Keeps /srv/lazylink/models (the downloaded models, often tens of GB) unless --remove-work-folder is given.
+# Also removes what an install from before 2026-10-30 left: the 'lazy' account and /srv/lazy-link.
 # Leaves installed packages (ethtool, ufw, openssh-server) alone: they are normal system tools.
 
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-WORK=/srv/lazy-link
+WORK=/srv/lazylink
+LEGACY_WORK=/srv/lazy-link
 STATE_DIR=/var/lib/lazy-link
 STATE="$STATE_DIR/setup-state"
 UNIT=/etc/systemd/system/lazy-link-runner.service
@@ -34,12 +36,14 @@ step() { echo; echo "== $*"; }
 run() { if [ "$DRY" = 1 ]; then echo "   would run: $*"; return 0; fi; "$@"; }
 fail() { echo "   FAILED: $*"; FAILS=$((FAILS + 1)); }
 
-# What setup recorded (empty if there is no record).
+# What setup recorded (empty if there is no record); has_record matches a whole line.
 recorded() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | head -1; }
-has_record() { [ -f "$STATE" ] && grep -q "^$1" "$STATE"; }
+has_record() { [ -f "$STATE" ] && grep -qx -- "$1" "$STATE"; }
+# The runner account this PC's record names: 'lazylink' (or 'lazy' from before 2026-10-30). Empty = none.
+OWNED=$(recorded created_user)
 
 if [ -f "$STATE" ]; then
-    echo "Setup record: $STATE"
+    echo "Setup record: $STATE (runner account: ${OWNED:-none})"
 else
     echo "No setup record found ($STATE). Removing the known Lazy Link pieces if they are there."
 fi
@@ -51,10 +55,10 @@ if [ -f "$UNIT" ] || systemctl cat lazy-link-runner.service >/dev/null 2>&1; the
 else
     echo "   not installed"
 fi
-if has_record created_user=lazy && id lazy >/dev/null 2>&1; then
-    run pkill -TERM -u lazy 2>/dev/null
-    for i in 1 2 3 4 5; do pgrep -u lazy >/dev/null 2>&1 || break; sleep 1; done
-    run pkill -KILL -u lazy 2>/dev/null
+if [ -n "$OWNED" ] && id "$OWNED" >/dev/null 2>&1; then
+    run pkill -TERM -u "$OWNED" 2>/dev/null
+    for i in 1 2 3 4 5; do pgrep -u "$OWNED" >/dev/null 2>&1 || break; sleep 1; done
+    run pkill -KILL -u "$OWNED" 2>/dev/null
 fi
 
 # ---- 2. Remove the unit files, sudo rule, sshd rule, firewall rule --------------------------------
@@ -85,10 +89,10 @@ if [ -n "$subnet" ]; then
 fi
 
 # ---- 3. Remove the account -----------------------------------------------------------------------
-step "Remove the 'lazy' account"
-if has_record created_user=lazy; then
-    if id lazy >/dev/null 2>&1; then
-        run userdel -r lazy || fail "userdel lazy failed (processes still running? see: ps -u lazy)"
+step "Remove the runner account (${OWNED:-none} in the record)"
+if [ -n "$OWNED" ]; then
+    if id "$OWNED" >/dev/null 2>&1; then
+        run userdel -r "$OWNED" || fail "userdel $OWNED failed (processes still running? see: ps -u $OWNED)"
     else
         echo "   already gone"
     fi
@@ -96,24 +100,26 @@ else
     echo "   not made by setup (no record): left alone"
 fi
 
-# ---- 4. Work folder -------------------------------------------------------------------------------
-step "Work folder $WORK"
-if [ -d "$WORK" ]; then
+# ---- 4. Work folder (and the old /srv/lazy-link, if an upgrade left one) ------------------------
+for F in "$WORK" "$LEGACY_WORK"; do
+step "Work folder $F"
+if [ -d "$F" ]; then
     if [ "$REMOVE_WORK" = 1 ]; then
-        run rm -rf "$WORK" || fail "could not remove $WORK"
-        echo "   removed $WORK (with models)"
+        run rm -rf "$F" || fail "could not remove $F"
+        echo "   removed $F (with models)"
     else
         for p in jobs runner pc-info.json runner.log runner.log.1 runner.lock runner.heartbeat; do
-            run rm -rf "$WORK/$p"
+            run rm -rf "$F/$p"
         done
-        if [ -d "$WORK/models" ]; then
-            run chown -R root:root "$WORK/models"
-            echo "   kept the models: $WORK/models (add --remove-work-folder to delete them too)"
+        if [ -d "$F/models" ]; then
+            run chown -R root:root "$F/models"
+            echo "   kept the models: $F/models (add --remove-work-folder to delete them too)"
         fi
     fi
 else
     echo "   not present"
 fi
+done
 
 # ---- 5. The record itself -------------------------------------------------------------------------
 step "Setup record"
@@ -123,7 +129,9 @@ run rmdir "$STATE_DIR" 2>/dev/null
 # ---- 6. Check: proof each piece is gone -----------------------------------------------------------
 if [ "$DRY" != 1 ]; then
     step "Check"
-    id lazy >/dev/null 2>&1 && fail "user lazy still exists" || echo "   user lazy: gone"
+    if [ -n "$OWNED" ]; then
+        id "$OWNED" >/dev/null 2>&1 && fail "user $OWNED still exists" || echo "   user $OWNED: gone"
+    fi
     systemctl cat lazy-link-runner.service >/dev/null 2>&1 && fail "runner service still defined" || echo "   runner service: gone"
     [ -e "$UNIT" ] && fail "$UNIT still there" || echo "   runner unit file: gone"
     [ -e "$SSHD_DROPIN" ] && fail "$SSHD_DROPIN still there" || echo "   sshd rule file: gone"
@@ -131,8 +139,10 @@ if [ "$DRY" != 1 ]; then
     [ -e "$STATE" ] && fail "$STATE still there" || echo "   setup record: gone"
     if [ "$REMOVE_WORK" = 1 ]; then
         [ -e "$WORK" ] && fail "$WORK still there" || echo "   work folder: gone"
+        [ -e "$LEGACY_WORK" ] && fail "$LEGACY_WORK still there" || echo "   old work folder: gone"
     else
         [ -e "$WORK/jobs" ] && fail "$WORK/jobs still there" || echo "   jobs folder: gone"
+        [ -e "$LEGACY_WORK/jobs" ] && fail "$LEGACY_WORK/jobs still there" || echo "   old jobs folder: gone"
         [ -d "$WORK/models" ] && echo "   models kept: $WORK/models"
     fi
     if command -v ufw >/dev/null 2>&1 && [ -n "$subnet" ]; then
