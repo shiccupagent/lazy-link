@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""local.py - the PC's local AI from the Mac, in batches (saves Claude tokens on bulk text; Claude still checks).
+"""local.py - the PC's local AI from the Mac, in batches (saves your AI agent's tokens on bulk text; the agent still checks).
 
   local.py setup                                   install llama.cpp, both chat models and Whisper (~35 GB, once)
   local.py ask ASKS.jsonl --out DIR [--model qwen|gptoss] [--max-tokens 800]

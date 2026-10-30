@@ -27,7 +27,7 @@
  "cheap_hours_note": "optional: when power is cheapest (this computer's clock), e.g. your utility's time-of-use plan name and where you checked it",
  "cheap_only": false,
  "cheap_hours_auto": false,
- "_cheap_hours_auto_doc": "optional: true = Claude looks up your utility's cheapest hours for your area (asks you once which utility/area) and keeps cheap_hours current",
+ "_cheap_hours_auto_doc": "optional: true = your AI agent looks up your utility's cheapest hours for your area (asks you once which utility/area) and keeps cheap_hours current",
  "_cheap_feed_doc": "optional: a free live price feed picks the cheapest hours of each day instead of cheap_hours. Add the line {\"source\": \"comed\"} (ComEd, Northern Illinois) or {\"source\": \"octopus\", \"region\": \"C\"} (Octopus Agile, UK; region is your letter A-P). cheap_hours stays the fallback if the feed is down, so keep it set.",
  "cheap_feed_hours": 6,
  "_cheap_feed_hours_doc": "optional, with cheap_feed: how many of the cheapest hours to use in each 24 h (1-24, default 6)"

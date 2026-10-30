@@ -4,7 +4,7 @@
 A gaming GPU is an AI machine that sits idle most of the day. Cloud image tools charge per image or
 cap you per day; a local model costs only electricity and makes as many as you want. On an RTX 3090
 we measured 3-15 s per 1-megapixel image, about 2 s per sound effect, and a chat model that writes
-about 200 tokens per second. The Mac (where Claude Code works) stays light: it only sends prompts
+about 200 tokens per second. The Mac (where your AI agent or you work) stays light: it only sends prompts
 and receives files.
 
 ## 2. The safe link
@@ -64,7 +64,7 @@ Then a side-by-side test on your real use, judged by eye and ear, not by a bench
 ## 7. The local chat model and Whisper
 llama.cpp runs open chat models on the GPU; Qwen3-30B-A3B and gpt-oss-20b both write about 200
 tokens per second on a 3090. They're good for bulk jobs (naming 300 sound files, summarising logs)
-so Claude spends its own effort on the parts that need it, then checks the results.
+so your AI agent spends its own effort on the parts that need it, then checks the results.
 Whisper large-v3 turns speech into text with word timings: captions, transcripts, and lip-sync.
 
 ## 8. Quality gates

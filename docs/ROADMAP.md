@@ -11,7 +11,7 @@ does the heavy lifting with no windows, and goes back to sleep.
   - installs what fits (`--setup`)
 - **Cheap-electricity hours:**
   - `--cheap` / `LAZY_CHEAP=1` / `cheap_only` hold jobs until the off-peak hours.
-  - `cheap_hours_auto` lets Claude look up your plan's hours.
+  - `cheap_hours_auto` lets your AI agent look up your plan's hours.
   - **Live prices:** `cheap_feed` picks the cheapest hours each day from ComEd (Northern Illinois) or
     Octopus Agile (UK). Other free feeds can be added as one function each.
 - **Old-PC tidy-up (Windows):** `./check.py --tidy` shows the sizes first and asks before deleting anything.

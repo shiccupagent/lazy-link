@@ -1,16 +1,22 @@
-# Lazy Link
+# Lazy Link: your own private AI cloud at home
 
 **Use your big gaming PC lazily, from your small nice computer.** It wakes up, does the heavy lifting,
 and goes back to sleep.
 
-Let Claude Code on your Mac use your Windows gaming PC's NVIDIA graphics card for local AI:
-**images, sound effects and music, 3D models, a chat model, and speech-to-text.**
-You type (or Claude writes) a prompt on the Mac; the PC does the work; the files come back.
-No cloud bill and no per-image quota. The PC stays your PC: jobs run invisibly under a separate
-locked-down account, and nothing on it listens to anything except your Mac on your home network.
+Lazy Link turns the gaming PC you already own into a private AI cloud for your home. Your AI agent does the setup, the model research and the running. You get the results.
+
+- **All the AI:** pictures, sound effects and music, 3D models, a chat model, and speech-to-text.
+- **Rendering:** 3D scenes, and web pages turned into video through headless Chrome.
+- **Compute:** heavy jobs run headless on your gaming PC's NVIDIA graphics card, started from your small computer.
+
+You don't need to do the work or the research. `check.py` picks the models that fit your PC, `imagegen/watch.py` finds new open image models, and your AI agent runs the jobs. Any AI agent that can run terminal commands works: Claude Code, Codex, Gemini CLI, Cursor and others, or you typing the commands yourself. Tested with Claude Code; other agents should work the same way.
+
+No hosted service: your prompts and files stay on your own machines and your home network. The only internet traffic is downloading models from their official sites and reading the public model list. The locked-down design is why it is safe; see [Safety, in plain words](#safety-in-plain-words).
+
+How it fits together: your small computer sends jobs over your home network, and the gaming PC does the heavy work and sends the files back.
 
 ```
-Mac (Claude Code)                                   Windows PC (NVIDIA GPU)
+Mac (you or your AI agent)                          Windows PC (NVIDIA GPU)
   imagegen.py / local.py                              hidden standard account "lazylink"
   pcjob run JOB  ── SSH, your key only ───────▶       job runner (scheduled task), one job at a time
                  ◀── results folder ─────────         ComfyUI (images, sound, 3D) · llama.cpp · Whisper
@@ -21,7 +27,7 @@ Speeds we measured on an RTX 3090: a 1-megapixel image in 3-15 s, a sound effect
 a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (roughly 150 words) per second.
 
 ## What you need
-- A Mac with Claude Code (or any Mac/Linux terminal with `python3` 3.9+ and `ssh`).
+- A Mac with an AI agent such as Claude Code, Codex, Gemini CLI or Cursor, or any Mac/Linux terminal with `python3` 3.9+ and `ssh` (you can type the commands yourself).
 - A Windows 10/11 PC with an NVIDIA GPU (12 GB of video memory or more is comfortable; 24 GB runs
   everything here), an up-to-date NVIDIA driver, and 40-100 GB free disk for models.
 - Both on the same home network. A network **cable** on the PC if you want the Mac to wake it.
@@ -83,7 +89,7 @@ It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pill
 `audio_check` and `pick_sounds` need ffmpeg (`brew install ffmpeg`) and numpy (`audio_check`) or numpy and scipy (`pick_sounds`);
 `sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
 `bump` and `shrink` are new; the PC step of `bump` has not yet run from this repo.
-Or just ask Claude Code in this folder: *"make me 10 coin sounds"*. [CLAUDE.md](CLAUDE.md) tells it how.
+Or just ask your AI agent in this folder: *"make me 10 coin sounds"*. [AGENTS.md](AGENTS.md) tells it how.
 
 **Batch your asks.** Each job spends 15-55 s starting ComfyUI or loading a model; after that, every
 extra image or answer is quick. One job with 50 asks beats 50 jobs with one.
@@ -92,7 +98,7 @@ extra image or answer is quick. One job with 50 asks beats 50 jobs with one.
 If your power company charges less at night, put the cheap hours in `config.json`:
 `"cheap_hours": ["23:00-07:00"]`. Then `LAZY_CHEAP=1 ./imagegen/imagegen.py run ...` (or `pcjob run --cheap`)
 waits until then, and `"cheap_only": true` makes every job wait. Don't know your hours? Set
-`"cheap_hours_auto": true` and Claude looks up your plan's off-peak hours and keeps them current.
+`"cheap_hours_auto": true` and your AI agent looks up your plan's off-peak hours and keeps them current.
 `./mac/pcjob cheap` shows the hours and whether they're on now.
 In Northern Illinois (ComEd) or on the UK's Octopus Agile tariff, `"cheap_feed": {"source": "comed"}` or
 `{"source": "octopus", "region": "C"}` picks the cheapest 6 hours of each day from the utility's free live

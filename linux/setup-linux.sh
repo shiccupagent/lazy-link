@@ -339,7 +339,7 @@ echo
 if [ "$DRY" = 1 ]; then
     echo "Dry run done: nothing was changed."
 else
-    echo "Setup done. Give Claude this PC's address (listed above) and this account name: $USER_NAME."
+    echo "Setup done. Give your AI agent (or yourself) this PC's address (listed above) and this account name: $USER_NAME."
     if [ "$MIGRATE" = 1 ]; then
         echo "Upgraded from the old 'lazy' account: the models are kept. Pair this PC again from the Mac"
         echo "(the Mac still signs in as 'lazy' until then)."
