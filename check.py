@@ -133,7 +133,7 @@ def health(c, p):
             "" if mark == "✔" else ". Update the driver: NVIDIA App, or nvidia.com/drivers (Game Ready or Studio both work).")))
     ram = c.get("ram_gb") or 0
     out.append(("✔" if ram >= 16 else "!", f"{ram:g} GB memory" + ("" if ram >= 16 else " (16 GB or more makes big models much smoother)")))
-    root = pc.ROOT or "C:/render"
+    root = pc.ROOT or "C:/lazylink"
     disks = {d["drive"].upper(): d for d in c.get("disks") or []}
     if root.startswith("/"):   # Linux: the disk is the longest mount point that holds the work folder
         disks = {d["drive"]: d for d in c.get("disks") or []}

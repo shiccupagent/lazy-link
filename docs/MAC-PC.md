@@ -4,6 +4,9 @@ Use a Mac with an M-series chip as the big computer. Your small computer (Window
 jobs over SSH; the big Mac runs them on its GPU (Metal) and sends the results back. The Mac sleeps when
 it isn't working and wakes for a job.
 
+
+Installed before 2026-10-30? Re-run `macpc/setup-mac.sh`; it renames `render` to `lazylink` and keeps your models. Then pair again from the Mac.
+
 ## Status
 
 | Part | State |
@@ -39,7 +42,7 @@ Everything was tested on one Mac, with no second computer. Nothing here has been
    Pass `--key-file FILE` (or `--key "<the key line>"`) if the key isn't in `macpc/mac-key.pub`.
 4. **Pair from the small computer:**
    `./mac/pcjob pair <the Mac's address> --os mac`
-   This checks the Mac's fingerprint and fills in `config.json` (the work folder, the user `render`, the
+   This checks the Mac's fingerprint and fills in `config.json` (the work folder, the user `lazylink`, the
    network card).
 5. **Check it:** `./check.py`
 
@@ -47,20 +50,20 @@ Everything was tested on one Mac, with no second computer. Nothing here has been
 
 Each step is recorded in `/var/db/lazy-link/setup-state`, so undo can reverse it.
 
-1. Creates the account `render`: a standard account (not an administrator), hidden from the login screen,
+1. Creates the account `lazylink`: a standard account (not an administrator), hidden from the login screen,
    with a random password that is never shown. The key is its only way in.
-2. Adds a sign-in rule, `/etc/ssh/sshd_config.d/10-lazy-link.conf`: only `render` may sign in over SSH, with a key.
+2. Adds a sign-in rule, `/etc/ssh/sshd_config.d/10-lazy-link.conf`: only `lazylink` may sign in over SSH, with a key.
    Passwords are off for all SSH sign-ins.
 3. Turns Remote Login (the SSH server) on, if it was off.
-4. Makes the work folder `~render/lazy-link` (jobs, runner and models).
-5. Adds a LaunchDaemon, `com.lazylink.runner`, that runs the job runner as `render` and restarts it if it stops.
-6. Adds a sleep rule, `/etc/sudoers.d/lazy-link-sleep`: `render` may run `pmset sleepnow` as root and nothing else.
+4. Makes the work folder `~lazylink/lazylink` (jobs, runner and models).
+5. Adds a LaunchDaemon, `com.lazylink.runner`, that runs the job runner as `lazylink` and restarts it if it stops.
+6. Adds a sleep rule, `/etc/sudoers.d/lazy-link-sleep`: `lazylink` may run `pmset sleepnow` as root and nothing else.
 7. Turns Wake for network access on (`pmset womp 1`), if it was off.
 8. Writes `pc-info.json` with the hardware summary that `pcjob pair` reads.
 
 ## Sign-in lockout
 
-After setup, SSH accepts only the `render` account, with a key. Your own administrator account can no longer
+After setup, SSH accepts only the `lazylink` account, with a key. Your own administrator account can no longer
 sign in over SSH. Local sign-in, screen sharing and Chrome Remote Desktop are not affected. To get admin SSH
 back, run the undo below.
 
@@ -83,14 +86,14 @@ setup turned it on, and sets Wake for network access back to its old value. It k
 ## Not yet verified (open questions)
 
 - `pmset sleepnow` as root through the sleep rule on macOS 27: not run yet.
-- Whether the `render` account can read the idle time. If it can't, the Mac counts as in use and won't sleep
+- Whether the `lazylink` account can read the idle time. If it can't, the Mac counts as in use and won't sleep
   (the safe side).
 - Remote Login set through `launchctl` on macOS 27 may need Full Disk Access for Terminal.
 - Wake from sleep needs the Ethernet port and has not been tried.
 - `imagegen/mac/setup.sh` installs PyTorch without a version pin, so it gets whatever PyPI has that day. Pin it
   before relying on it.
 - `local/mac/setup.sh` uses bash arrays and has not been run under macOS's bash (3.2). It may need a fix.
-- The random `render` password appears briefly in the process list while setup creates the account. Only
+- The random `lazylink` password appears briefly in the process list while setup creates the account. Only
   someone already on the Mac can see it, and only during setup.
 
 ## Files
@@ -98,5 +101,5 @@ setup turned it on, and sets Wake for network access back to its old value. It k
 - Setup and undo: `macpc/setup-mac.sh`, `macpc/undo-mac.sh`
 - Job runner: `macpc/runner.sh`; hardware check: `macpc/check.sh`
 - Pictures and sound: `imagegen/mac/` (setup, fetch, preview); chat and speech: `local/mac/`
-- On the Mac: the work folder `~render/lazy-link`, the setup record `/var/db/lazy-link/setup-state`,
-  and the runner log `~render/lazy-link/runner/launchd.log`
+- On the Mac: the work folder `~lazylink/lazylink`, the setup record `/var/db/lazy-link/setup-state`,
+  and the runner log `~lazylink/lazylink/runner/launchd.log`

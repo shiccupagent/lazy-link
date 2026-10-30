@@ -1,7 +1,7 @@
 #!/bin/sh
 # check.sh - job for `./check.py` on an Apple Silicon Mac: what this Mac has, and how ready it is
 # after months or years switched off. Same keys as linux/check.sh and pc/check.ps1 so check.py reads
-# them the same way. Runs as the hidden 'render' account (no sudo): it only reads, never changes or
+# them the same way. Runs as the hidden 'lazylink' account (no sudo): it only reads, never changes or
 # deletes anything. Writes $RENDER_OUT/check.json. No addresses, network-card IDs or user names go in it.
 # The chip's GPU shares the memory, so the graphics entry has unified_memory true and vram_gb = RAM
 # (check.py counts a share of it as graphics memory). Fields not applicable here are null.

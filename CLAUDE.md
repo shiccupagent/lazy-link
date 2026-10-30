@@ -33,7 +33,7 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
   Listen to, or at least measure, sounds before you ship them (new sounds often come out harsh): `imagegen/audio_check.py` measures them.
 - Check a model's licence (`imagegen.py sizes`) before its output goes into something sold.
 - Anything that needs admin on the PC is one line for the user to paste into an admin PowerShell.
-  Never widen the firewall rule or make `render` an administrator.
+  Never widen the firewall rule or make `lazylink` an administrator.
 - config.json is personal (PC address, network card). Never commit it or paste it anywhere.
 - New model: add it to imagegen/models.json (official URL, size and sha256 from the Hugging Face API,
   licence), then `imagegen.py fetch`. ComfyUI templates become recipes with `imagegen.py convert`

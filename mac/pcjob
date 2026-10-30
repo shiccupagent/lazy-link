@@ -3,8 +3,8 @@
 
 A job is a local folder with a job.ps1 (Windows PC) or a job.sh (Linux or Mac) in it, plus any inputs.
 On the PC the script runs in a copy of that folder; whatever it writes to $RENDER_OUT comes back.
-$RENDER_ROOT is the PC's work folder (C:/render, /srv/lazy-link on Linux, or the render account's
-lazy-link folder on a Mac). On Windows,
+$RENDER_ROOT is the PC's work folder (C:/lazylink, /srv/lazylink on Linux, or the lazylink account's
+lazylink folder on a Mac). On Windows,
 $env:FFMPEG and $env:BLENDER point at those tools when the PC has them. The PC's runner
 (pc/runner.ps1, linux/runner.sh or macpc/runner.sh) runs it outside SSH, so closing the Mac's connection or
 the Mac sleeping never kills a job.
@@ -40,18 +40,18 @@ PC_DIR = {"windows": "pc", "linux": "linux", "mac": "macpc"}   # this repo's fol
 SETUP_HINT = {"windows": "Run pc/Setup-PC.cmd on the PC again.",
               "linux": "Run linux/setup-linux.sh on the PC again.",
               "mac": "Run macpc/setup-mac.sh on the Mac again (it asks for an admin password)."}
-MAC_HOMES = "/Users"   # the render account's home is <this>/render; its work folder is <home>/lazy-link
+MAC_HOMES = "/Users"   # the lazylink account's home is <this>/lazylink; its work folder is <home>/lazylink
 OS_NAME = CFG.get("pc_os", "windows")
 if OS_NAME not in OS_CHOICES:
     sys.exit(f"pcjob: pc_os in config.json must be windows, linux or mac, not {OS_NAME!r}")
 
 
 def default_root(os_name):
-    return {"linux": "/srv/lazy-link", "mac": MAC_HOMES + "/render/lazy-link"}.get(os_name, "C:/render")
+    return {"linux": "/srv/lazylink", "mac": MAC_HOMES + "/lazylink/lazylink"}.get(os_name, "C:/lazylink")
 
 
 def default_user(os_name):
-    return "lazy" if os_name == "linux" else "render"
+    return "lazylink"
 
 
 LINUX, MAC = OS_NAME == "linux", OS_NAME == "mac"
@@ -254,18 +254,18 @@ def op_has_media(name):
 
 
 def op_in_use():
-    # Someone is "using" the PC when a real user is signed in and active. The render account and the
+    # Someone is "using" the PC when a real user is signed in and active. The lazylink account and the
     # service never count. Output: "<in use 0|1> <at lock screen 0|1>"; on Windows it's the desktop check.
     lin = ("e=0; for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do "
            "a=$(loginctl show-session \"$s\" -p Active --value); c=$(loginctl show-session \"$s\" -p Class --value); "
            "t=$(loginctl show-session \"$s\" -p Type --value); "
            "if [ \"$a\" = yes ] && [ \"$c\" = user ] && { [ \"$t\" = x11 ] || [ \"$t\" = wayland ] || [ \"$t\" = tty ]; }; "
            "then e=1; fi; done; echo \"$e 0\"")
-    # Mac: the console owner is a real user (not root, render or a system _account), and either the
+    # Mac: the console owner is a real user (not root, lazylink, render or a system _account), and either the
     # keyboard/mouse was used in the last 15 minutes or an app is holding the display awake.
     # If the idle time can't be read, the Mac counts as in use (sleep is refused, which is the safe side).
     mac = ("e=0; u=$(stat -f %Su /dev/console 2>/dev/null); "
-           "case \"$u\" in ''|root|render|_*) ;; *) "
+           "case \"$u\" in ''|root|lazylink|render|_*) ;; *) "
            "ns=$(ioreg -c IOHIDSystem 2>/dev/null | awk '/HIDIdleTime/ {print $NF; exit}'); "
            "idle=$(( ${ns:-0} / 1000000000 )); "
            "if [ \"$idle\" -lt 900 ] || pmset -g assertions 2>/dev/null | grep -q PreventUserIdleDisplaySleep; then e=1; fi;; esac; "
@@ -633,7 +633,7 @@ def cmd_rm(a):
 
 
 def put(path):
-    """Copy a file into C:/render/media once; the name carries a content hash, so the same
+    """Copy a file into C:/lazylink/media once; the name carries a content hash, so the same
     footage is never sent twice and two different files never share a name."""
     path = Path(path).expanduser().resolve()
     h = hashlib.sha256()
@@ -664,7 +664,7 @@ def cmd_put(a):
 
 def in_use():
     """Is someone on the PC? Signed in (a desktop in a user session) and not at the lock screen.
-    (render can't see their idle time, so an unlocked desktop counts as in use.)"""
+    (lazylink can't see their idle time, so an unlocked desktop counts as in use.)"""
     out = on_pc(op_in_use)
     e, l = (int(x) for x in out.split())
     return e > 0 and l == 0

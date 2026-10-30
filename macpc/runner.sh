@@ -1,7 +1,7 @@
 #!/bin/bash
 # runner.sh - the Mac job runner. Same protocol as pc/runner.ps1 (Windows) and linux/runner.sh.
 # setup-mac.sh copies it to <work folder>/runner/runner.sh; the com.lazylink.runner LaunchDaemon runs
-# it as the hidden 'render' account (KeepAlive), outside any SSH session, so a dropped link never
+# it as the hidden 'lazylink' account (KeepAlive), outside any SSH session, so a dropped link never
 # kills a job.
 #
 # A job is a folder <work folder>/jobs/<id>/ that the small computer fills (mac/pcjob):

@@ -11,10 +11,10 @@ locked-down account, and nothing on it listens to anything except your Mac on yo
 
 ```
 Mac (Claude Code)                                   Windows PC (NVIDIA GPU)
-  imagegen.py / local.py                              hidden standard account "render"
+  imagegen.py / local.py                              hidden standard account "lazylink"
   pcjob run JOB  ── SSH, your key only ───────▶       job runner (scheduled task), one job at a time
                  ◀── results folder ─────────         ComfyUI (images, sound, 3D) · llama.cpp · Whisper
-  pcjob wake (Wake-on-LAN) / pcjob sleep              everything lives in C:\render
+  pcjob wake (Wake-on-LAN) / pcjob sleep              everything lives in C:\lazylink
 ```
 
 Speeds we measured on an RTX 3090: a 1-megapixel image in 3-15 s, a sound effect in about 2 s,
@@ -40,7 +40,7 @@ a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (r
    ./check.py --setup    # then install exactly what it recommends
    ./check.py --tidy     # old PC: sizes first; asks before deleting, and only Lazy Link's own files
    ```
-   Or install by hand (no admin needed, all into `C:\render`):
+   Or install by hand (no admin needed, all into `C:\lazylink`):
    ```bash
    ./imagegen/imagegen.py setup          # ComfyUI + Python + PyTorch (about 5 GB)
    ./imagegen/imagegen.py sizes          # what each model downloads, and its licence
@@ -98,10 +98,12 @@ In Northern Illinois (ComEd) or on the UK's Octopus Agile tariff, `"cheap_feed":
 `{"source": "octopus", "region": "C"}` picks the cheapest 6 hours of each day from the utility's free live
 price feed instead. Keep `cheap_hours` set too: it is used if the feed is down.
 
+Installed before 2026-10-30? Re-run Setup-PC; it renames `render` to `lazylink` and keeps your models. Then pair again from the Mac.
+
 ## Safety, in plain words
-- **A separate, hidden, standard account** (`render`) runs every job. It is not an administrator,
+- **A separate, hidden, standard account** (`lazylink`) runs every job. It is not an administrator,
   can't sign in at the keyboard, and its password is random and never shown.
-- **Key only.** SSH accepts only your Mac's key, only for `render`. Passwords are switched off.
+- **Key only.** SSH accepts only your Mac's key, only for `lazylink`. Passwords are switched off.
 - **Home network only.** The firewall opens port 22 only on networks Windows calls *Private*, and
   only to addresses on your own home network. ComfyUI and the chat model listen on 127.0.0.1 (the
   PC itself), never the network.

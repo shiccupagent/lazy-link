@@ -1,17 +1,21 @@
 #!/bin/bash
 # undo-mac.sh - backs out setup-mac.sh, using the state file it wrote, and then checks each step is gone.
 #   sudo bash undo-mac.sh [--dry-run] [--remove-work-folder]
-# Keeps ~render/lazy-link/models (the downloaded models, often tens of GB) unless --remove-work-folder
-# is given. Leaves Command Line Tools and Homebrew alone. Remote Login is turned off only if setup turned it on,
+# Keeps ~lazylink/lazylink/models (the downloaded models, often tens of GB) unless --remove-work-folder
+# is given. Also removes what an install from before 2026-10-30 left: the 'render' account and ~render/lazy-link.
+# Leaves Command Line Tools and Homebrew alone. Remote Login is turned off only if setup turned it on,
 # and Wake for network access goes back to the value it had before setup.
 # --dry-run runs without sudo and changes nothing.
 
 set -u
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-RENDER_USER=render
-HOME_DIR="/Users/$RENDER_USER"
-WORK="$HOME_DIR/lazy-link"
+RUNNER_USER=lazylink
+HOME_DIR="/Users/$RUNNER_USER"
+WORK="$HOME_DIR/lazylink"
+LEGACY_USER=render
+LEGACY_HOME="/Users/$LEGACY_USER"
+LEGACY_WORK="$LEGACY_HOME/lazy-link"
 STATE_DIR=/var/db/lazy-link
 STATE="$STATE_DIR/setup-state"
 DAEMON_LABEL=com.lazylink.runner
@@ -39,9 +43,9 @@ step() { echo; echo "== $*"; }
 run() { if [ "$DRY" = 1 ]; then echo "   would run: $*"; return 0; fi; "$@"; }
 fail() { echo "   FAILED: $*"; FAILS=$((FAILS + 1)); }
 
-# What setup recorded (empty if there is no record).
+# What setup recorded (empty if there is no record); has_record matches a whole line.
 recorded() { [ -f "$STATE" ] && sed -n "s/^$1=//p" "$STATE" | head -1; }
-has_record() { [ -f "$STATE" ] && grep -q "^$1" "$STATE"; }
+has_record() { [ -f "$STATE" ] && grep -qx -- "$1" "$STATE"; }
 
 if [ -f "$STATE" ]; then
     echo "Setup record: $STATE"
@@ -49,7 +53,19 @@ else
     echo "No setup record found ($STATE). Removing the known Lazy Link pieces if they are there."
 fi
 
-# ---- 1. Stop the runner and the account's processes ----------------------------------------------
+# The accounts this PC's record says setup made: the runner account, and 'render' if an install from
+# before 2026-10-30 (or an upgrade from it) made one.
+OWNED=$(recorded created_user)
+ACCOUNTS=""
+[ -n "$OWNED" ] && ACCOUNTS="$OWNED"
+LEGACY_OURS=0
+if has_record created_user=$LEGACY_USER || has_record migrated_from=$LEGACY_USER; then LEGACY_OURS=1; fi
+if [ "$LEGACY_OURS" = 1 ] && [ "$OWNED" != "$LEGACY_USER" ]; then ACCOUNTS="${ACCOUNTS:+$ACCOUNTS }$LEGACY_USER"; fi
+# Whether setup made the current account's home folder (and so may remove it with --remove-work-folder).
+MADE_HOME=0
+if [ "$OWNED" = "$RUNNER_USER" ] && has_record home_created=yes; then MADE_HOME=1; fi
+
+# ---- 1. Stop the runner and the accounts' processes -----------------------------------------------
 step "Stop the job runner"
 if [ -f "$DAEMON" ] || launchctl print "system/$DAEMON_LABEL" >/dev/null 2>&1; then
     run launchctl bootout system "$DAEMON" 2>/dev/null || run launchctl bootout "system/$DAEMON_LABEL" 2>/dev/null \
@@ -58,13 +74,15 @@ if [ -f "$DAEMON" ] || launchctl print "system/$DAEMON_LABEL" >/dev/null 2>&1; t
 else
     echo "   not running"
 fi
-if has_record created_user="$RENDER_USER" && dscl . -read "/Users/$RENDER_USER" >/dev/null 2>&1; then
-    run pkill -TERM -u "$RENDER_USER" 2>/dev/null
-    if [ "$DRY" != 1 ]; then
-        for i in 1 2 3 4 5; do pgrep -u "$RENDER_USER" >/dev/null 2>&1 || break; sleep 1; done
+for U in $ACCOUNTS; do
+    if dscl . -read "/Users/$U" >/dev/null 2>&1; then
+        run pkill -TERM -u "$U" 2>/dev/null
+        if [ "$DRY" != 1 ]; then
+            for i in 1 2 3 4 5; do pgrep -u "$U" >/dev/null 2>&1 || break; sleep 1; done
+        fi
+        run pkill -KILL -u "$U" 2>/dev/null
     fi
-    run pkill -KILL -u "$RENDER_USER" 2>/dev/null
-fi
+done
 
 # ---- 2. Remove the daemon file, sleep rule and sign-in rule; put Remote Login back -------------
 step "Remove the runner, sleep rule and sign-in rule"
@@ -90,44 +108,53 @@ if [ -n "$prev_womp" ]; then
     echo "   Wake for network access set back to $prev_womp"
 fi
 
-# ---- 3. Remove the account -----------------------------------------------------------------------
-step "Remove the '$RENDER_USER' account (its home folder is kept, see below)"
-if has_record created_user="$RENDER_USER"; then
-    if dscl . -read "/Users/$RENDER_USER" >/dev/null 2>&1; then
-        run sysadminctl -deleteUser "$RENDER_USER" -keepHome || fail "sysadminctl could not delete $RENDER_USER (processes still running? see: ps -u $RENDER_USER)"
-    else
-        echo "   already gone"
-    fi
-else
+# ---- 3. Remove the accounts ----------------------------------------------------------------------
+step "Remove the runner account(s): ${ACCOUNTS:-none in the record} (home folders are kept, see below)"
+if [ -z "$ACCOUNTS" ]; then
     echo "   not made by setup (no record): left alone"
 fi
+for U in $ACCOUNTS; do
+    if dscl . -read "/Users/$U" >/dev/null 2>&1; then
+        run sysadminctl -deleteUser "$U" -keepHome || fail "sysadminctl could not delete $U (processes still running? see: ps -u $U)"
+    else
+        echo "   '$U': already gone"
+    fi
+done
 if [ "$DRY" != 1 ]; then
-    # the key must not outlive the account; the kept home folder may still hold it
+    # the key must not outlive the account; the kept home folders may still hold it
     [ -d "$HOME_DIR/.ssh" ] && rm -rf "$HOME_DIR/.ssh" && echo "   removed $HOME_DIR/.ssh (the key)"
+    if [ "$LEGACY_OURS" = 1 ] && [ -d "$LEGACY_HOME/.ssh" ]; then rm -rf "$LEGACY_HOME/.ssh" && echo "   removed $LEGACY_HOME/.ssh (the key)"; fi
 fi
 
-# ---- 4. Work folder -------------------------------------------------------------------------------
-step "Work folder $WORK"
-if [ -d "$WORK" ]; then
+# ---- 4. Work folders (the current one, and the old ~render one if an earlier install left it) -----
+# $1 = work folder, $2 = its home folder, $3 = 1 if setup made that home (then --remove-work-folder removes it)
+clear_work() {
+    F=$1; H=$2; MADE=$3
+    step "Work folder $F"
+    if [ ! -d "$F" ]; then echo "   not present"; return 0; fi
     if [ "$REMOVE_WORK" = 1 ]; then
-        if has_record home_created=yes; then
-            run rm -rf "$HOME_DIR" || fail "could not remove $HOME_DIR"
-            echo "   removed $HOME_DIR (the account's home folder, with models)"
+        if [ "$MADE" = 1 ]; then
+            run rm -rf "$H" || fail "could not remove $H"
+            echo "   removed $H (the account's home folder, with models)"
         else
-            run rm -rf "$WORK" || fail "could not remove $WORK"
-            echo "   removed $WORK (with models)"
+            run rm -rf "$F" || fail "could not remove $F"
+            echo "   removed $F (with models)"
         fi
     else
         for p in jobs runner pc-info.json runner.log runner.log.1 runner.lockdir runner.heartbeat; do
-            run rm -rf "$WORK/$p"
+            run rm -rf "$F/$p"
         done
-        if [ -d "$WORK/models" ]; then
-            run chown -R root:wheel "$WORK/models"
-            echo "   kept the models: $WORK/models (add --remove-work-folder to delete them too)"
+        if [ -d "$F/models" ]; then
+            run chown -R root:wheel "$F/models"
+            echo "   kept the models: $F/models (add --remove-work-folder to delete them too)"
         fi
     fi
-else
-    echo "   not present"
+}
+clear_work "$WORK" "$HOME_DIR" "$MADE_HOME"
+if [ "$LEGACY_OURS" = 1 ]; then
+    MADE_LEGACY_HOME=0
+    has_record home_created=yes && MADE_LEGACY_HOME=1
+    clear_work "$LEGACY_WORK" "$LEGACY_HOME" "$MADE_LEGACY_HOME"
 fi
 
 # ---- 5. The record itself -------------------------------------------------------------------------
@@ -138,7 +165,9 @@ run rmdir "$STATE_DIR" 2>/dev/null
 # ---- 6. Check: proof each piece is gone -----------------------------------------------------------
 if [ "$DRY" != 1 ]; then
     step "Check"
-    dscl . -read "/Users/$RENDER_USER" >/dev/null 2>&1 && fail "account $RENDER_USER still exists" || echo "   account $RENDER_USER: gone"
+    for U in $ACCOUNTS; do
+        dscl . -read "/Users/$U" >/dev/null 2>&1 && fail "account $U still exists" || echo "   account $U: gone"
+    done
     launchctl print "system/$DAEMON_LABEL" >/dev/null 2>&1 && fail "runner still loaded" || echo "   runner: gone"
     [ -e "$DAEMON" ] && fail "$DAEMON still there" || echo "   runner file: gone"
     [ -e "$SSHD_DROPIN" ] && fail "$SSHD_DROPIN still there" || echo "   sign-in rule file: gone"
@@ -146,9 +175,11 @@ if [ "$DRY" != 1 ]; then
     [ -e "$STATE" ] && fail "$STATE still there" || echo "   setup record: gone"
     if [ "$REMOVE_WORK" = 1 ]; then
         [ -e "$WORK" ] && fail "$WORK still there" || echo "   work folder: gone"
+        [ "$LEGACY_OURS" = 1 ] && { [ -e "$LEGACY_WORK" ] && fail "$LEGACY_WORK still there" || echo "   old work folder: gone"; }
     else
         [ -e "$WORK/jobs" ] && fail "$WORK/jobs still there" || echo "   jobs folder: gone"
         [ -d "$WORK/models" ] && echo "   models kept: $WORK/models"
+        [ "$LEGACY_OURS" = 1 ] && [ -d "$LEGACY_WORK/models" ] && echo "   models kept: $LEGACY_WORK/models"
     fi
 fi
 

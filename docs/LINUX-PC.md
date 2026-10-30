@@ -4,6 +4,9 @@ Lazy Link can use a Linux PC instead of the Windows one. Everything you do from 
 
 **Status:** the Linux path is tested in a virtual Linux machine on the Mac. That machine is ARM and has no graphics card, so it ran everything on the CPU. Not yet tested on a real Linux PC with an NVIDIA card: the GPU paths (ComfyUI with CUDA, llama.cpp with CUDA, Whisper on the GPU), the 30 GB chat models, 3D previews and sound/3D recipes.
 
+
+Installed before 2026-10-30? Re-run `linux/setup-linux.sh`; it renames `lazy` to `lazylink` and keeps your models. Then pair again from the Mac.
+
 ## What you need
 
 - A PC running Ubuntu (other Debian-based systems probably work, but Ubuntu is what was tested).
@@ -41,4 +44,4 @@ On the PC, run `sudo bash undo-linux.sh`. It reverses each step the setup made a
 ## Notes
 
 - The setup sets up the firewall rule for SSH only for the network you name (`--subnet`). It does not turn the firewall on. Turn the firewall on yourself if you want it.
-- Models live in `/srv/lazy-link/models`. The undo keeps them unless you ask it to remove them.
+- Models live in `/srv/lazylink/models`. The undo keeps them unless you ask it to remove them.

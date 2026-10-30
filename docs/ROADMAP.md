@@ -25,7 +25,7 @@ does the heavy lifting with no windows, and goes back to sleep.
 
 ## Next
 Small fixes first:
-- Mac big computer: if Remote Login was already on, keep the accounts that already use SSH working (add `render` to the allowed group instead of `AllowUsers render`).
+- Mac big computer: if Remote Login was already on, keep the accounts that already use SSH working (add `lazylink` to the allowed group instead of `AllowUsers lazylink`).
 - Windows `local/setup-local-ai.ps1`: pin PyAV below 17 like Linux (PyAV 19 breaks faster-whisper 1.2.1), then test on the PC.
 
 1. **Any small computer.** Windows: `Install-Windows.cmd` (tested on Windows 11; pairing from Windows still to test).

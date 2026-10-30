@@ -141,12 +141,12 @@ Short answer: not on a normal gaming PC. Do it once by hand. It takes about 5 mi
 ## Lights off at night (optional)
 A PC that runs jobs overnight doesn't need to glow. If [OpenRGB](https://openrgb.org) is installed, `pc/lights/night.ps1`
 turns every light it can reach dark (keyboard, cooler, motherboard, graphics card) and keeps them dark until a time you
-pick. It runs as `render`, without admin. Most USB lighting works that way; memory-stick lighting needs OpenRGB's admin
-driver, so it may stay on. Copy `pc/lights/` to `C:\render\lights`, add the `openrgb-python` wheel (`pip download
+pick. It runs as `lazylink`, without admin. Most USB lighting works that way; memory-stick lighting needs OpenRGB's admin
+driver, so it may stay on. Copy `pc/lights/` to `C:\lazylink\lights`, add the `openrgb-python` wheel (`pip download
 openrgb-python`) and a `python-path.txt` naming a Python 3 on the PC. Then schedule it once from an admin PowerShell:
 `Register-ScheduledTask -TaskName 'LazyLink Lights Off' -Trigger (New-ScheduledTaskTrigger -Daily -At 11pm) -Action
 (New-ScheduledTaskAction -Execute powershell.exe -Argument '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File
-C:\render\lights\night.ps1 -Until 07:55') -Principal (New-ScheduledTaskPrincipal -UserId render -LogonType S4U)`.
+C:\lazylink\lights\night.ps1 -Until 07:55') -Principal (New-ScheduledTaskPrincipal -UserId lazylink -LogonType S4U)`.
 OpenRGB can't read the colours your devices had, so morning lighting comes back from each device's own memory
 (replugging a keyboard brings it back), not from Lazy Link. The blinking **power-button** light is wired to the
 motherboard, not RGB. Look for a BIOS option such as MSI's *ACPI Settings → Power LED → Dual Color*, ASUS's *LED lighting in

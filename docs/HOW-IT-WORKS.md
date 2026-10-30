@@ -9,9 +9,9 @@ and receives files.
 
 ## 2. The safe link
 The goal is to let the Mac in and nobody else, without giving it the keys to the PC.
-- **A separate account, `render`.** Standard rights (not an administrator), hidden from the sign-in
+- **A separate account, `lazylink`.** Standard rights (not an administrator), hidden from the sign-in
   screen, random password nobody knows. If something went wrong in a job, it can only touch what
-  `render` can touch: its own work folder, `C:\render`.
+  `lazylink` can touch: its own work folder, `C:\lazylink`.
 - **OpenSSH, key only.** Windows has an SSH server built in. Setup turns off passwords and allows
   exactly one account with exactly one key: the one `install-mac.sh` made on your Mac.
 - **Firewall: home network only.** One rule: port 22, only on *Private* networks, only from your
@@ -20,7 +20,7 @@ The goal is to let the Mac in and nobody else, without giving it the keys to the
   with the PC's screen, so the Mac knows it is talking to your PC and not an impostor. After that,
   the Mac refuses to connect if the PC's identity ever changes.
 - **One admin step.** Everything that needs admin is in `Setup-PC.cmd`, and `Undo-PC.cmd` reverses
-  it. Everything after that (ComfyUI, models, chat models) installs as `render`, without admin.
+  it. Everything after that (ComfyUI, models, chat models) installs as `lazylink`, without admin.
 
 ## 3. The job runner
 The obvious way, running a long render straight over SSH, fails on Windows: when an SSH session
@@ -28,8 +28,8 @@ closes, Windows' OpenSSH ends every process that session started. A Wi-Fi blip o
 to sleep would kill a 20-minute job.
 
 So the Mac doesn't run jobs; it **drops them off**. A job is a folder with a `job.ps1` script.
-`pcjob run` packs it, copies it to `C:\render\jobs\<id>\`, and writes a `ready` marker last.
-A scheduled task (the *runner*) runs as `render` from boot, whether or not anyone is signed in, and:
+`pcjob run` packs it, copies it to `C:\lazylink\jobs\<id>\`, and writes a `ready` marker last.
+A scheduled task (the *runner*) runs as `lazylink` from boot, whether or not anyone is signed in, and:
 - runs one job at a time, oldest first;
 - keeps the PC awake while a job runs;
 - puts each job in a Windows *job object*, so a timeout or `pcjob cancel` ends the job and
@@ -49,7 +49,7 @@ to sleep **only if this job woke it and nobody is signed in and using it**.
 
 ## 5. ComfyUI, headless
 ComfyUI is the open-source engine behind most local image tools. We install our own pinned copy in
-`C:\render\tools` (any ComfyUI you already have is left alone) and never open its web page:
+`C:\lazylink\tools` (any ComfyUI you already have is left alone) and never open its web page:
 each job starts it on 127.0.0.1 (the PC only), sends work through its HTTP API, collects the files
 and stops it. Starting takes 13-55 s, which is why you batch.
 Recipes for sound and 3D are ComfyUI's own templates, converted to the API format by ComfyUI's own

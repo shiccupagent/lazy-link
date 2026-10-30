@@ -30,8 +30,8 @@ Don't fight it: `pcjob` sends every command as base64 with `-EncodedCommand`.
 
 **PowerShell variable names ignore case.** `$m` and `$M` are the same variable. One overwrote the other in our setup script.
 
-**`render` can't use some things.** A standard account can't use WMI, `taskkill`, the event log,
-or programs installed only for another user. That's on purpose. Install tools into `C:\render\tools`
+**`lazylink` can't use some things.** A standard account can't use WMI, `taskkill`, the event log,
+or programs installed only for another user. That's on purpose. Install tools into `C:\lazylink\tools`
 instead (the scripts here do).
 
 **Wake-on-LAN doesn't wake the PC.**
