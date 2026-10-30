@@ -66,6 +66,17 @@ def graph(m, files, ask, prefix):
         "decode": {"class_type": "VAEDecode", "inputs": {"samples": ["sample", 0], "vae": ["vae", 0]}},
         "save": {"class_type": "SaveImage", "inputs": {"images": ["decode", 0], "filename_prefix": prefix}},
     }
+    if ask.get("init"):  # repaint a picture: start from it (VAE-encoded) and, with a mask, only where the mask is white
+        g["init"] = {"class_type": "LoadImage", "inputs": {"image": upload(ask["init"])}}
+        g["latent"] = {"class_type": "VAEEncode", "inputs": {"pixels": ["init", 0], "vae": ["vae", 0]}}
+        if ask.get("mask"):
+            g["mask"] = {"class_type": "LoadImageMask", "inputs": {"image": upload(ask["mask"]), "channel": "red"}}
+            g["noisemask"] = {"class_type": "SetLatentNoiseMask", "inputs": {"samples": ["init_latent", 0], "mask": ["mask", 0]}}
+            g["init_latent"], g["latent"] = g["latent"], g["noisemask"]
+            # outside the mask the saved picture keeps the original pixels exactly (the VAE round trip would soften them)
+            g["keep"] = {"class_type": "ImageCompositeMasked", "inputs": {"destination": ["init", 0], "source": ["decode", 0],
+                                                                        "x": 0, "y": 0, "resize_source": False, "mask": ["mask", 0]}}
+            g["save"]["inputs"]["images"] = ["keep", 0]
     if ask.get("cutout"):  # + a transparent copy: BiRefNet foreground mask -> alpha
         g["bgm"] = {"class_type": "LoadBackgroundRemovalModel", "inputs": {"bg_removal_name": files["cutout"]}}
         g["fg"] = {"class_type": "RemoveBackground", "inputs": {"bg_removal_model": ["bgm", 0], "image": ["decode", 0]}}
@@ -80,7 +91,7 @@ def graph(m, files, ask, prefix):
         g["sample"] = {"class_type": "KSampler", "inputs": {
             "model": model, "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["latent", 0],
             "seed": seed, "steps": m["steps"], "cfg": m["cfg"], "sampler_name": m["sampler"],
-            "scheduler": m["scheduler"], "denoise": 1}}
+            "scheduler": m["scheduler"], "denoise": ask.get("denoise", 1)}}
     else:  # flux2: custom sampler with the Flux2 schedule, as in image_flux2_klein_text_to_image
         g["noise"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}}
         g["sampler"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": m["sampler"]}}

@@ -20,6 +20,8 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
 For make, ASKS.json is a list of {"name": "...", "params": {"prompt": "...", ...}, "image": "in.png"}:
 params are the recipe's named inputs (models.json "recipes"), image (3D) is a local file.
 ASKS.json is a list of {"name": "...", "prompt": "...", "w": 1024, "h": 1024, "seed": 1, "cutout": false}.
+Repaint part of a picture: "init": "in.png", "mask": "mask.png" (white = repaint), "denoise": 0.6, with
+run(..., inputs=[in.png, mask.png]); pixels outside the mask come back exactly.
 Each result is DIR/<name>__<model>.png (+ <name>__<model>-cutout.png with a transparent
 background when "cutout" is true), plus DIR/timings.json and DIR/comfy.log.
 """
@@ -90,12 +92,13 @@ def send(files, ps1, want, name, out, timeout, sh=None):
     pc.release(woke)   # back to sleep if we woke it and nobody is on it
 
 
-def run(asks, keys, out, timeout):
+def run(asks, keys, out, timeout, inputs=()):
+    """inputs: local pictures the asks name in "init" / "mask" (sent beside asks.json)."""
     out = Path(out).expanduser().resolve()
     with tempfile.TemporaryDirectory() as td:
         a = Path(td) / "asks.json"
         json.dump(asks, open(a, "w"), indent=1)
-        send([HERE / "models.json", HERE / "pc" / "batch.py", a], RUN_PS1, keys, "imagegen", out, timeout, sh=RUN_SH)
+        send([HERE / "models.json", HERE / "pc" / "batch.py", a, *inputs], RUN_PS1, keys, "imagegen", out, timeout, sh=RUN_SH)
     t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
     print(f"ComfyUI start {t['comfy_boot_s']} s")
     for r in t["runs"]:
