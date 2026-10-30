@@ -1,0 +1,157 @@
+{
+ "_doc": "An example with two made-up character voices (from the project's own videos): a goofy clay golfer and a movie-trailer announcer. Use it with: voice/install.py --script voice/example-voices.json. Voice ids must stay unique; recordings are matched by id and line number.",
+ "voices": [
+  {
+   "id": "barnaby",
+   "name": "Barnaby",
+   "try": {
+    "text": "Barnaby here! Today we're facing a part on the lathe, and I promise not to drop it this time.",
+    "exaggeration": 0.65,
+    "cfg": 0.45
+   },
+   "direction": "Barnaby, the clay golfer who hosts the shop videos and trailers. Make up a voice for him: friendly, a bit goofy, proud of every little thing. An accent is fine, but make it your own, not an impression of someone famous. Keep the same voice for every line.",
+   "lines": [
+    {
+     "room": true,
+     "text": "Stay quiet for 3 seconds. This records the room's background sound."
+    },
+    {
+     "text": "Hi, I'm Barnaby! Welcome back to the shop."
+    },
+    {
+     "text": "Today we're grinding a tool, and then we're cutting some threads."
+    },
+    {
+     "text": "Safety glasses on. Always. Even me, and I'm made of clay."
+    },
+    {
+     "text": "Okay, one light skim pass. Nice and easy."
+    },
+    {
+     "text": "Whoa, look at that chip curl!"
+    },
+    {
+     "text": "That's five hundred thou. Half an inch. Don't let anybody tell you otherwise."
+    },
+    {
+     "text": "Measure twice, cut once. Then measure again, just in case."
+    },
+    {
+     "text": "Hmm, that doesn't look right. Let's back it off a little."
+    },
+    {
+     "text": "And... there it is. Perfect fit. I'm not crying, you're crying."
+    },
+    {
+     "text": "Fore! Sorry. Wrong hobby."
+    },
+    {
+     "text": "A good chamfer is like a good handshake. Firm, but not too firm."
+    },
+    {
+     "text": "Here's a tip from an old golfer: slow down. The machine isn't going anywhere."
+    },
+    {
+     "text": "Is this necessary? Absolutely not. Is it awesome? You bet it is."
+    },
+    {
+     "text": "Thanks, editor. Okay, back to me."
+    },
+    {
+     "text": "Stick around, because by the end, you'll have one too."
+    },
+    {
+     "text": "Hole in one! Well, a thread in one. Close enough."
+    },
+    {
+     "text": "Ready? Three, two, one, cut."
+    },
+    {
+     "text": "Wait, wait, wait. Did that just work on the first try?"
+    },
+    {
+     "text": "If you've got questions, drop them in the comments. I read every single one."
+    },
+    {
+     "text": "Who left the zombies in the garage again?"
+    },
+    {
+     "text": "That's a wrap for today. Now go make something!"
+    }
+   ]
+  },
+  {
+   "id": "announcer",
+   "name": "Announcer",
+   "try": {
+    "text": "This winter... one game will change everything. Coming soon.",
+    "exaggeration": 0.6,
+    "cfg": 0.3
+   },
+   "direction": "The big movie-trailer voice for game trailers. Slow, deep, dramatic, with long pauses. Have fun with it.",
+   "lines": [
+    {
+     "room": true,
+     "text": "Stay quiet for 3 seconds. This records the room's background sound."
+    },
+    {
+     "text": "In a world... where the zombies never stop coming..."
+    },
+    {
+     "text": "One neighborhood. One night. No way out."
+    },
+    {
+     "text": "One neighborhood. Play it now, free, in your browser."
+    },
+    {
+     "text": "This fall... the stakes have never been higher."
+    },
+    {
+     "text": "Eighteen holes. One golfer. Zero chill."
+    },
+    {
+     "text": "They said it couldn't be done. They were wrong."
+    },
+    {
+     "text": "Coming soon."
+    },
+    {
+     "text": "From the people who brought you nothing... comes something completely different."
+    },
+    {
+     "text": "Ladies and gentlemen... the main event!"
+    },
+    {
+     "text": "Round one... fight!"
+    },
+    {
+     "text": "Get ready. Get set. Go!"
+    },
+    {
+     "text": "Game over? Not even close."
+    },
+    {
+     "text": "New high score!"
+    },
+    {
+     "text": "Three... two... one..."
+    },
+    {
+     "text": "One city. One summer. The streets belong to you."
+    },
+    {
+     "text": "Only one team will take the trophy."
+    },
+    {
+     "text": "Are you ready?"
+    },
+    {
+     "text": "Welcome to the show."
+    },
+    {
+     "text": "Now playing, everywhere."
+    }
+   ]
+  }
+ ]
+}

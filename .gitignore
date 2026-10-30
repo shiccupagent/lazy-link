@@ -9,3 +9,5 @@ __pycache__/
 .DS_Store
 *.local.md
 imagegen/watch-seen.json
+voice/recordings/
+voice/refs/

@@ -1,0 +1,87 @@
+{
+ "_doc": "What you read into the voice recorder (voice/server.py). One entry per voice; each line is one take; \"try\" is what voice/clone.py has the AI copy say, with its Chatterbox settings (exaggeration: how expressive, cfg: how closely it follows the pace of your recording). A line with \"room\": true records 3 s of silence (the room's own sound). Change names or lines here, or point install.py at another file with --script (example-voices.json has two made-up character voices), then run voice/install.py again; finished recordings are kept, matched by voice id and line number.",
+ "voices": [
+  {
+   "id": "you",
+   "name": "Your voice",
+   "direction": "Your normal voice, like you're telling a friend about something cool. Don't perform it.",
+   "try": {
+    "text": "Hey, it's me. This voice was made on my own PC from a couple of minutes of recordings. Pretty wild, right?",
+    "exaggeration": 0.5,
+    "cfg": 0.5
+   },
+   "lines": [
+    {
+     "room": true,
+     "text": "Stay quiet for 3 seconds. This records the room's background sound."
+    },
+    {
+     "text": "Hi there. This is my normal speaking voice, nice and relaxed."
+    },
+    {
+     "text": "So here's the idea. I had a gaming PC in the other room, doing nothing most of the day."
+    },
+    {
+     "text": "Now my laptop sends it a job. It wakes up, does the heavy lifting, and goes back to sleep."
+    },
+    {
+     "text": "Honestly, the first time it worked, I just sat there and laughed."
+    },
+    {
+     "text": "Does it cost anything? Not really. Just a little electricity."
+    },
+    {
+     "text": "Quick question for you: what would you make with a free studio in the next room?"
+    },
+    {
+     "text": "Okay, numbers. Twenty-four gigabytes of memory, and about forty gigabytes of disk."
+    },
+    {
+     "text": "Three, two, one, go."
+    },
+    {
+     "text": "Wait, hold on. Let me try that again."
+    },
+    {
+     "text": "This one took about twenty minutes, start to finish."
+    },
+    {
+     "text": "Here's the thing nobody tells you when you start."
+    },
+    {
+     "text": "Hmm. I'm not sure that's right. Let's check."
+    },
+    {
+     "text": "Oh, that's way better than I expected!"
+    },
+    {
+     "text": "First, the picture. Second, the sound. Third, the 3D model."
+    },
+    {
+     "text": "Is it perfect? No. Is it good enough? I think so."
+    },
+    {
+     "text": "The quick brown fox jumps over the lazy dog, then naps in the sun."
+    },
+    {
+     "text": "She sells seashells by the seashore, and business is surprisingly good."
+    },
+    {
+     "text": "Please put the big red box on the shelf by the window."
+    },
+    {
+     "text": "Every step of this runs on my own computer. Nothing gets uploaded."
+    },
+    {
+     "text": "I'll show you exactly how, one step at a time."
+    },
+    {
+     "text": "The link is in the description, and it's free to try."
+    },
+    {
+     "text": "Thanks for listening. See you next time."
+    }
+   ]
+  }
+ ]
+}

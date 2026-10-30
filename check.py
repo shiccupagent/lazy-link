@@ -4,6 +4,8 @@ after months or years switched off, then say which AI models it can run and the 
 
   ./check.py              the report, plus what to install
   ./check.py --setup      the report, then install what it recommends
+  ./check.py --setup --want images,sounds   only those jobs (images, sounds, 3d, maps, text, voice)
+  ./check.py --setup --kit game-assets      a ready-made set from kits.json
   ./check.py --from FILE  the report from an earlier check.json (no PC needed)
   ./check.py --tidy       sizes of what can be cleaned on the PC; asks before deleting Lazy Link's own files (--yes skips the question)
 
@@ -23,6 +25,11 @@ WORK_ROOM = 2.0   # GB of graphics memory a picture/sound job needs on top of it
 # The local chat and speech models (downloads and settings live in local/setup-local-ai.ps1).
 LOCAL = {"qwen": ("Qwen3-30B-A3B chat", 18.6, 20.0), "gptoss": ("gpt-oss-20b chat", 12.1, 13.5),
          "whisper": ("Whisper large-v3 speech-to-text", 3.1, 5.0)}   # name, download GB, graphics memory GB to run fast
+# What each job installs (--want); README "What gets installed" says the same in plain words.
+JOBS = {"images": "pictures, plus transparent cutouts", "sounds": "sound effects and music", "3d": "picture to 3D model",
+        "maps": "bump maps for surfaces (normal + depth)", "text": "chat models and speech-to-text",
+        "voice": "copy your own voice (Windows PC)"}
+VOICE_GB = 5.7   # Chatterbox model files 3.2 GB + its own torch 2.5 GB (voice/chatterbox.json)
 DRIVER_MIN, DRIVER_GOOD = 527.41, 551.61   # CUDA 12 runs from 527.41; our CUDA 12.4 builds want 551.61+ on Windows
 
 
@@ -45,7 +52,9 @@ def rate(need, vram, ram):
     return "slow" if vram >= 6 and need <= vram + ram * 0.5 else "no"
 
 
-def plan(c):
+def plan(c, want=None):
+    """want: a set of JOBS keys, or None for the default (everything that fits except maps and voice)."""
+    on = lambda j: (j not in ("maps", "voice")) if want is None else j in want
     gpu = max(c.get("gpus") or [{}], key=lambda g: g.get("vram_gb", 0))
     ram = c.get("ram_gb") or 0
     # A Mac chip shares its memory with the system: about 70% of the RAM can hold a model, and none of it is spare on top.
@@ -63,20 +72,26 @@ def plan(c):
         rows.append((label, "text", need, rate(need, vram, spare), k))
     ok = {r[4]: r[3] for r in rows}
     # Pictures: the best model that runs fast, else the lightest that runs at all.
-    for k in ("krea2", "zimage", "klein"):
-        if ok[k] == "fast":
-            images = [k]; break
-    if not images and ok["klein"] == "slow":
-        images = ["klein"]
-    recipes = [k for k in ("sfx", "audio", "mesh") if ok.get(k) == "fast"] or ([] if ok.get("sfx") == "no" else ["sfx"])
-    local = ok["whisper"] != "no" and (ok["qwen"] != "no" or ok["gptoss"] != "no")
+    if on("images"):
+        for k in ("krea2", "zimage", "klein"):
+            if ok[k] == "fast":
+                images = [k]; break
+        if not images and ok["klein"] == "slow":
+            images = ["klein"]
+    if on("sounds"):
+        recipes = [k for k in ("sfx", "audio") if ok.get(k) == "fast"] or ([] if ok.get("sfx") == "no" else ["sfx"])
+    recipes += [k for k, j in (("mesh", "3d"), ("maps", "maps")) if on(j) and ok.get(k) == "fast"]
+    local = on("text") and ok["whisper"] != "no" and (ok["qwen"] != "no" or ok["gptoss"] != "no")
+    voice = on("voice") and bool(gpu.get("vram_gb")) and not gpu.get("unified_memory")
     files = set()
     for k in images:
         files |= {MODELS["models"][k][p] for p in ("unet", "clip", "vae")}
     for k in recipes:
         files |= set(MODELS["recipes"][k]["files"])
-    files.add(MODELS["cutout"]["model"])
-    download = sum(size(f) for f in files) + (sum(v[1] for v in LOCAL.values()) + 0.7 if local else 0) + (5 if images or recipes else 0)
+    if images or recipes:
+        files.add(MODELS["cutout"]["model"])   # imagegen.py fetch always brings the cutout model
+    download = sum(size(f) for f in files) + (sum(v[1] for v in LOCAL.values()) + 0.7 if local else 0) + \
+        (5 if images or recipes else 0) + (VOICE_GB if voice else 0)
     cmds = []
     if images or recipes:
         cmds += [["./imagegen/imagegen.py", "setup"],
@@ -85,6 +100,8 @@ def plan(c):
                  (["--recipes", ",".join(recipes)] if recipes else [])]
     if local:
         cmds.append(["./local/local.py", "setup"])
+    if voice:   # clone.py --setup brings uv's Python, which the recorder's desktop icon runs
+        cmds += [["./voice/clone.py", "--setup"], ["./voice/install.py", "--no-test"]]
     return dict(gpu=gpu, vram=vram, ram=ram, rows=rows, download=download, cmds=cmds)
 
 
@@ -194,8 +211,8 @@ def show(cmd):
     return shlex.join(["python3", rel.as_posix()] + cmd[1:])
 
 
-def report(c):
-    p = plan(c)
+def report(c, want=None):
+    p = plan(c, want)
     print("\nYour PC")
     for mark, text in health(c, p):
         print(f"  {mark} {text}")
@@ -209,7 +226,8 @@ def report(c):
         for cmd in p["cmds"]:
             print("  " + show(cmd))
     else:
-        print("\nNothing fits this PC yet; fix the ✘ lines above and check again.")
+        print("\nNothing to install: " + ("none of the jobs you picked fits this PC." if want else
+                                          "nothing fits this PC yet; fix the ✘ lines above and check again."))
     return p
 
 
@@ -308,6 +326,8 @@ def main():
     ap.add_argument("--setup", action="store_true", help="install what the report recommends")
     ap.add_argument("--tidy", action="store_true", help="sizes of what can be cleaned; asks before deleting Lazy Link's files")
     ap.add_argument("--yes", action="store_true", help="with --tidy: clean without asking (for scripts)")
+    ap.add_argument("--want", help="only these jobs, comma-separated: " + ", ".join(JOBS))
+    ap.add_argument("--kit", help="a ready-made set of jobs from kits.json")
     ap.add_argument("--from", dest="src", help="an earlier check.json (or tidy.json with --tidy)")
     a = ap.parse_args()
     if a.setup and a.tidy:
@@ -316,6 +336,15 @@ def main():
         sys.exit("--yes goes with --tidy")
     if a.tidy:
         return tidy(a)
+    want = None
+    if a.want or a.kit:
+        kits = json.loads((HERE / "kits.json").read_text())["kits"]
+        if a.kit and a.kit not in kits:
+            sys.exit(f"no kit '{a.kit}' in kits.json; there are: {', '.join(kits)}")
+        want = set(kits[a.kit] if a.kit else []) | {j.strip() for j in (a.want or "").split(",") if j.strip()}
+        bad = want - set(JOBS)
+        if bad:
+            sys.exit(f"unknown job(s) {', '.join(sorted(bad))}; jobs are: {', '.join(JOBS)}")
     if a.src:
         c = json.loads(Path(a.src).read_text(encoding="utf-8-sig"))
     else:
@@ -327,7 +356,7 @@ def main():
             imagegen.send([HERE / "pc" / "reach.ps1"], (HERE / "pc" / "check.ps1").read_text(), {}, "check", out, 600)
         c = json.loads((out / "check.json").read_text(encoding="utf-8-sig"))
         print(f"(saved in {out / 'check.json'})")
-    p = report(c)
+    p = report(c, want)
     if a.setup:
         if any(m == "✘" for m, _ in health(c, p)):
             sys.exit("\nNot installing: fix the ✘ lines first.")

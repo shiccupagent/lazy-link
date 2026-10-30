@@ -1,0 +1,9 @@
+{
+ "_doc": "Ready-made sets of jobs for `./check.py --setup --kit NAME` (or pick jobs yourself with --want). Jobs: images, sounds, 3d, maps, text, voice; see README \"What gets installed\". Add your own kit here.",
+ "kits": {
+  "pictures": ["images"],
+  "game-assets": ["images", "sounds", "3d", "maps"],
+  "everything": ["images", "sounds", "3d", "maps", "text", "voice"],
+  "studio": ["images", "sounds", "3d", "maps", "text", "voice"]
+ }
+}

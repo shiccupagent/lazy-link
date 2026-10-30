@@ -44,6 +44,8 @@ a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (r
    ```bash
    ./check.py            # graphics card, memory, disks, updates, wake settings -> which models fit
    ./check.py --setup    # then install exactly what it recommends
+   ./check.py --setup --want images,sounds   # or only the jobs you want (see "What gets installed")
+   ./check.py --setup --kit game-assets      # or a ready-made set from kits.json
    ./check.py --tidy     # old PC: sizes first; asks before deleting, and only Lazy Link's own files
    ```
    Or install by hand (no admin needed, all into `C:\lazylink`):
@@ -52,7 +54,25 @@ a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (r
    ./imagegen/imagegen.py sizes          # what each model downloads, and its licence
    ./imagegen/imagegen.py fetch --models krea2 --recipes audio
    ./local/local.py setup                # chat models + Whisper (about 35 GB)
+   ./voice/clone.py --setup              # voice copying (about 6 GB)
    ```
+
+### What gets installed
+Everything goes into the PC's work folder (`C:\lazylink`); nothing needs admin, and `Undo-PC -RemoveWorkFolder`
+takes it all away. Pick jobs with `--want` (comma-separated) or a kit from `kits.json` with `--kit`.
+With neither, `--setup` installs every job that fits your card except `maps` and `voice`.
+
+| Job | What you can do | What it installs | Download |
+|---|---|---|---|
+| `images` | pictures, transparent cutouts | ComfyUI + PyTorch, the best picture model that fits your card (Krea 2 Turbo, Z-Image or FLUX.2 klein), BiRefNet | 5 GB + 16-21 GB |
+| `sounds` | sound effects, music | Stable Audio 3 (small and/or medium) | 4-14 GB |
+| `3d` | picture to 3D model (.glb) | Pixal3D + TRELLIS.2 | about 15 GB |
+| `maps` | bump maps for game surfaces | MoGe-2 | under 1 GB |
+| `text` | chat, speech-to-text | llama.cpp, Qwen3-30B-A3B, gpt-oss-20b, Whisper large-v3 | about 35 GB |
+| `voice` | copy your own voice | Chatterbox + its own PyTorch, the "Record voices" icon | about 6 GB |
+
+Kits: `pictures` (images), `game-assets` (images, sounds, 3d, maps), `everything`. `./imagegen/imagegen.py sizes`
+lists every file, its size and its licence. `./check.py` prints the exact total for your card before anything downloads.
 
 ## Other computers
 The main path above is a **Mac controlling a Windows PC**. Other mixes:
@@ -90,6 +110,21 @@ It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pill
 `sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
 `bump` and `shrink` are new; the PC step of `bump` has not yet run from this repo.
 Or just ask your AI agent in this folder: *"make me 10 coin sounds"*. [AGENTS.md](AGENTS.md) tells it how.
+
+### Copy your own voice (Windows PC)
+```bash
+./voice/install.py          # puts a "Record voices" icon on the PC's desktop
+./voice/clone.py --setup    # once: installs Chatterbox on the PC (about 6 GB with its own torch)
+./voice/clone.py            # after you record: your recording and the AI copy, side by side
+```
+Double-click **Record voices** on the PC, put on your headset and read the lines (about 20 minutes, one line at a
+time, Space to record). The page records the plain microphone (no noise filters, which the copy would learn too)
+and warns when a take is too loud, too quiet or the room is noisy. Then `clone.py` brings the takes back, picks
+about 10 s of the cleanest lines and has [Chatterbox](https://huggingface.co/ResembleAI/chatterbox) (MIT) say a new
+line in your voice, on the PC, offline. Your recordings are personal: they stay on the PC and your small computer
+(`voice/recordings` and `voice/refs`, never committed) and never go anywhere else. Change the lines in
+`voice/scripts.json`; `voice/example-voices.json` has two made-up character voices. Only copy a voice you have the
+right to use. Everything Chatterbox makes carries an inaudible watermark that marks it as AI speech.
 
 **Batch your asks.** Each job spends 15-55 s starting ComfyUI or loading a model; after that, every
 extra image or answer is quick. One job with 50 asks beats 50 jobs with one.
