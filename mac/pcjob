@@ -8,7 +8,8 @@ them. The PC's runner (pc/runner.ps1) runs it outside SSH, so closing the Mac's 
 the Mac sleeping never kills a job.
 
   pcjob pair PC_ADDRESS          first time: check the PC's fingerprint, write ~/.ssh/config + config.json
-  pcjob run DIR [--name N] [--timeout S] [--wait] [--fetch DEST]   send a job (wakes the PC)
+  pcjob run DIR [--name N] [--timeout S] [--wait] [--fetch DEST] [--cheap]   send a job (wakes the PC)
+  pcjob cheap                    the cheap-electricity hours, and whether they're on now
   pcjob status ID | list | log ID | wait ID [--max S] | fetch ID DEST | cancel ID | rm ID
   pcjob put FILE                 copy a big input onto the PC once (prints media:<name>)
   pcjob ping | info | wake | sleep | push-runner   (sleep refuses while someone is using the PC)
@@ -104,11 +105,47 @@ def status(job_id):
     return json.loads(out)
 
 
+def windows():
+    """config.json "cheap_hours": ["23:00-07:00", ...] (this computer's clock) -> [(start_min, end_min)]."""
+    out = []
+    for w in CFG.get("cheap_hours") or []:
+        a, b = (int(h) * 60 + int(m) for h, m in (x.strip().split(":") for x in w.split("-")))
+        out.append((a, b))
+    return out
+
+
+def minutes_to_cheap(now=None):
+    """0 inside a cheap window, else minutes until the next one starts; None when no windows are set."""
+    ws = windows()
+    if not ws:
+        return None
+    t = time.localtime(now)
+    m = t.tm_hour * 60 + t.tm_min
+    if any((a <= m < b) if a < b else (m >= a or m < b) for a, b in ws):
+        return 0
+    return min((a - m) % 1440 for a, _ in ws)
+
+
+def wait_for_cheap(force=False):
+    """Hold a heavy job until electricity is cheap: with --cheap, LAZY_CHEAP=1, or "cheap_only": true in config.json."""
+    if not (force or CFG.get("cheap_only") or os.environ.get("LAZY_CHEAP") == "1"):
+        return
+    left = minutes_to_cheap()
+    if left is None:
+        sys.exit("pcjob: --cheap needs \"cheap_hours\" in config.json, e.g. [\"23:00-07:00\"] (see config.example.json)")
+    if left:
+        print(f"pcjob: waiting for cheap electricity: starts in {left // 60} h {left % 60:02d} min "
+              f"({', '.join(CFG['cheap_hours'])})", flush=True)
+        while minutes_to_cheap():
+            time.sleep(30)
+
+
 def cmd_run(a):
     src = Path(a.dir).resolve()
     if not (src / "job.ps1").is_file():
         sys.exit(f"pcjob: {src}/job.ps1 not found")
     name = "".join(c if c.isalnum() or c in "-_" else "-" for c in (a.name or src.name))[:40]
+    wait_for_cheap(getattr(a, "cheap", False))
     job_id = time.strftime("%Y%m%d-%H%M%S-") + name
     wake()
     ok, age = runner_alive()
@@ -342,12 +379,13 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run"); r.add_argument("dir"); r.add_argument("--name"); r.add_argument("--timeout", type=int, default=3600)
     r.add_argument("--wait", action="store_true"); r.add_argument("--fetch", metavar="DEST")
+    r.add_argument("--cheap", action="store_true", help="wait for the cheap-electricity hours in config.json first")
     for n in ("status", "log", "cancel", "rm"):
         sub.add_parser(n).add_argument("id")
     w = sub.add_parser("wait"); w.add_argument("id"); w.add_argument("--max", type=int, default=7200)
     f = sub.add_parser("fetch"); f.add_argument("id"); f.add_argument("dest")
     sub.add_parser("put").add_argument("file")
-    for n in ("list", "ping", "info", "wake", "push-runner"):
+    for n in ("list", "ping", "info", "wake", "push-runner", "cheap"):
         sub.add_parser(n)
     pr = sub.add_parser("pair"); pr.add_argument("address"); pr.add_argument("--yes", action="store_true", help="skip the fingerprint question")
     sl = sub.add_parser("sleep"); sl.add_argument("--hibernate", action="store_true", help="hibernate: fully off, no blinking sleep light")
@@ -360,6 +398,12 @@ def main():
             print(f"runner: {'up' if ok else 'DOWN'} (heartbeat {age}s ago)")
     elif a.cmd == "wake":
         print("woke the PC" if wake() else "PC was already awake")
+    elif a.cmd == "cheap":
+        left = minutes_to_cheap()
+        print("no cheap hours set (config.json \"cheap_hours\")" if left is None else
+              f"cheap hours {', '.join(CFG['cheap_hours'])}: " + ("on now" if left == 0 else f"next in {left // 60} h {left % 60:02d} min")
+              + (f"; {CFG['cheap_hours_note']}" if CFG.get("cheap_hours_note") else "")
+              + ("; every job waits for them" if CFG.get("cheap_only") else "; jobs wait only with --cheap or LAZY_CHEAP=1"))
     else:
         {"run": cmd_run, "status": cmd_status, "list": cmd_list, "log": cmd_log, "wait": cmd_wait,
          "fetch": cmd_fetch, "cancel": cmd_cancel, "rm": cmd_rm, "sleep": cmd_sleep, "put": cmd_put, "push-runner": cmd_push_runner,

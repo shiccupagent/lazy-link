@@ -64,6 +64,13 @@ Or just ask Claude Code in this folder: *"make me 10 coin sounds"*. [CLAUDE.md](
 **Batch your asks.** Each job spends 15-55 s starting ComfyUI or loading a model; after that, every
 extra image or answer is quick. One job with 50 asks beats 50 jobs with one.
 
+## Run big jobs when electricity is cheap (optional)
+If your power company charges less at night, put the cheap hours in `config.json`:
+`"cheap_hours": ["23:00-07:00"]`. Then `LAZY_CHEAP=1 ./imagegen/imagegen.py run ...` (or `pcjob run --cheap`)
+waits until then, and `"cheap_only": true` makes every job wait. Don't know your hours? Set
+`"cheap_hours_auto": true` and Claude looks up your plan's off-peak hours and keeps them current.
+`./mac/pcjob cheap` shows the hours and whether they're on now.
+
 ## Safety, in plain words
 - **A separate, hidden, standard account** (`render`) runs every job. It is not an administrator,
   can't sign in at the keyboard, and its password is random and never shown.
@@ -101,5 +108,7 @@ Lazy Link is free and stays free (MIT). If it saves you money or time, you can c
 Thank you!
 
 ## More
+- [docs/BIOS-AND-WAKE.md](docs/BIOS-AND-WAKE.md): make the PC wake from the network (BIOS and Windows settings).
+- [docs/REMOTE-DESKTOP.md](docs/REMOTE-DESKTOP.md): optional, see and use your computers from anywhere, safely.
 - [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md): why each piece is built the way it is.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): the gotchas we hit, and their fixes.

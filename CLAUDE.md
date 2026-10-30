@@ -10,7 +10,9 @@ This repo lets you (Claude, on the Mac) run AI jobs on the user's Windows PC GPU
 - `./imagegen/imagegen.py preview DIR`: turntable pictures of every .glb (needs Blender on the PC).
 - `./local/local.py ask ASKS.jsonl --out DIR` / `ask-one "..."` / `transcribe FILE... --out DIR`.
 - `./mac/pcjob run DIR --fetch OUT`: any folder with a job.ps1 (PowerShell; write results to $env:RENDER_OUT).
-- `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep`.
+- `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap`.
+- Cheap electricity: `--cheap` on `pcjob run`, or `LAZY_CHEAP=1` before any command, holds the job until
+  config.json `cheap_hours` (`"cheap_only": true` = every job). Use it for big batches that aren't urgent.
 
 ## Rules
 - **Never sleep, restart or shut down the PC while someone is using it.** `pcjob sleep` checks;
@@ -27,3 +29,8 @@ This repo lets you (Claude, on the Mac) run AI jobs on the user's Windows PC GPU
   licence), then `imagegen.py fetch`. ComfyUI templates become recipes with `imagegen.py convert`
   (generated files: rerun it, never hand-edit recipes/). convert needs Node 22 and Chrome on the PC.
 - Before anything leaves the machine: `tools/privacy-scan.sh` (repo) and `tools/frame-scan.sh VIDEO` (videos).
+- `"cheap_hours_auto": true` in config.json: keep `cheap_hours` right for the user. Ask once which electricity
+  company and plan they have, or their town (never guess; it stays in config.json only). Look up that plan's
+  time-of-use or off-peak hours on the company's own site, then write `cheap_hours`, plus `cheap_hours_note`
+  (plan name, source link, date checked). Check again when the note is over 90 days old or the season changes.
+  With no time-of-use plan, say so: every hour costs the same, so off-peak only helps the grid.

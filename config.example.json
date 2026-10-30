@@ -3,12 +3,27 @@
  "ssh_host": "lazy-pc",
  "pc_address": "192.168.1.50",
  "pc_mac": "00-11-22-33-44-55",
- "broadcast": ["192.168.1.255"],
+ "broadcast": [
+  "192.168.1.255"
+ ],
  "pc_root": "C:/render",
  "extra_model_folders": {
   "_doc": "optional: model folders you already have on the PC (ComfyUI layout), read-only, so nothing downloads twice",
-  "diffusion_models": ["D:/MyModels/diffusion_models"],
-  "text_encoders": ["D:/MyModels/text_encoders"],
-  "vae": ["D:/MyModels/vae"]
- }
+  "diffusion_models": [
+   "D:/MyModels/diffusion_models"
+  ],
+  "text_encoders": [
+   "D:/MyModels/text_encoders"
+  ],
+  "vae": [
+   "D:/MyModels/vae"
+  ]
+ },
+ "cheap_hours": [
+  "23:00-07:00"
+ ],
+ "cheap_hours_note": "optional: when power is cheapest (this computer's clock), e.g. your utility's time-of-use plan name and where you checked it",
+ "cheap_only": false,
+ "cheap_hours_auto": false,
+ "_cheap_hours_auto_doc": "optional: true = Claude looks up your utility's cheapest hours for your area (asks you once which utility/area) and keeps cheap_hours current"
 }
