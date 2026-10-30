@@ -9,6 +9,7 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
   imagegen.py one "prompt" --out DIR [--model krea2] [--size 1024x1024] [--seed N] [--name N]
   imagegen.py fetch [--models krea2] [--recipes audio,mesh]   download missing model files (official repos, sha256-checked)
   imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh) or maps (normal + depth) from a recipe
+  imagegen.py tile PICTURE... --out DIR      seamless copy of each surface picture, on this computer, no AI (tiles.py)
   imagegen.py bump PICTURE... --out DIR      bump maps for surface pictures: DIR/<name>_normal.png + _height.png (runs make maps)
   imagegen.py shrink GLB... --out DIR        phone-size copies of .glb files: DIR/<name>-small.glb (512 px JPEG textures)
   imagegen.py preview DIR                    four turntable renders of every .glb in DIR (Blender on the PC) -> DIR/preview/
@@ -138,6 +139,10 @@ def main():
     pv = sub.add_parser("preview"); pv.add_argument("dir")
     bp = sub.add_parser("bump", help="bump maps (normal + height) for surface pictures; needs numpy, scipy, Pillow here")
     bp.add_argument("pictures", nargs="+"); bp.add_argument("--out", required=True); bp.add_argument("--timeout", type=int, default=1800)
+    tl = sub.add_parser("tile", help="seamless copies of surface pictures (tiles.py); needs numpy, scipy and Pillow here")
+    tl.add_argument("pictures", nargs="+"); tl.add_argument("--out", required=True)
+    tl.add_argument("--overlap", type=float, help="share laid over itself to find the cut (tiles.OVERLAP)")
+    tl.add_argument("--flatten", type=float, help="even out light drift wider than this share; 0 = off (tiles.FLATTEN)")
     sk = sub.add_parser("shrink", help="phone-size copies of .glb files (512 px JPEG textures); needs Pillow here")
     sk.add_argument("glbs", nargs="+"); sk.add_argument("--out", required=True)
     a = p.parse_args()
@@ -148,6 +153,18 @@ def main():
         run([{"name": a.name, "prompt": a.prompt, "w": w, "h": h, "seed": a.seed, "cutout": a.cutout}], model_keys(a.model), a.out, a.timeout)
     elif a.cmd == "make":
         make(a.recipe, Path(a.asks).resolve(), a.out, a.timeout)
+    elif a.cmd == "tile":
+        try:
+            import tiles
+        except ImportError as e:
+            sys.exit(f"imagegen tile needs numpy, scipy and Pillow on this computer (pip3 install numpy scipy pillow): {e}")
+        out = Path(a.out).expanduser().resolve(); out.mkdir(parents=True, exist_ok=True)
+        for f in [Path(x).resolve() for x in a.pictures]:
+            dst = out / f"{f.stem}_tile.png"
+            before, after = tiles.seamless(f, dst, tiles.OVERLAP if a.overlap is None else a.overlap,
+                                           tiles.FLATTEN if a.flatten is None else a.flatten)
+            tiles.repeat(dst, out / f"{f.stem}_tile_2x2.png")   # 2 x 2 copies: look at the joins, the score can't see everything
+            print(f"tile: {dst}  edges jump {before:.1f}x an ordinary step before, {after:.1f}x after")
     elif a.cmd == "bump":
         try:
             import bumpmaps
