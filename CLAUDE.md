@@ -13,6 +13,10 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./imagegen/imagegen.py bump PICTURE... --out DIR`: bump maps (`<name>_normal.png` + `_height.png`) from a surface picture; runs `make maps` on the PC, then needs numpy, scipy, Pillow on this computer.
 - `./imagegen/imagegen.py shrink GLB... --out DIR`: phone-size copies of `make mesh` .glb files (512 px JPEG textures); needs Pillow on this computer.
 - `./imagegen/imagegen.py preview DIR`: turntable pictures of every .glb (needs Blender on the PC).
+- `python3 imagegen/audio_check.py DIR [--frequent a,b] [--fix OUTDIR]`: the never-harsh gate for sounds (brightness and >4 kHz share), writes DIR/soundboard.mp3 to listen to; `--fix` writes game-ready .mp3 copies. Needs numpy and ffmpeg.
+- `python3 imagegen/pick_sounds.py TAKES_DIR --ref FILE... --dest DIR [--keep 3] [--often a,b]`: finishes, tone-matches and scores takes against reference sounds; keeps the best per sound. Needs numpy, scipy and ffmpeg.
+- `python3 imagegen/sheet.py OUT.png ASKS.json COL=DIR[:label] ...` or `sheet.py grid OUT.png ASKS.json DIR MODEL`: side-by-side comparison sheet (Pillow).
+- `python3 imagegen/watch.py [--mark]`: new open image models on Hugging Face (public API, no key).
 - `./local/local.py ask ASKS.jsonl --out DIR` / `ask-one "..."` / `transcribe FILE... --out DIR`.
 - `./mac/pcjob run DIR --fetch OUT`: any folder with a job.ps1 (PowerShell; write results to $env:RENDER_OUT).
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap`.
@@ -25,7 +29,7 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - Batch: one job with many asks, not many jobs. Starting ComfyUI or a model costs 15-55 s per job.
 - Long jobs: run them in the background and wait for them to finish; don't poll in a tight loop.
 - Look at every image you make before you use it (models drift toward famous characters and logos).
-  Listen to, or at least measure, sounds before you ship them (new sounds often come out harsh).
+  Listen to, or at least measure, sounds before you ship them (new sounds often come out harsh): `imagegen/audio_check.py` measures them.
 - Check a model's licence (`imagegen.py sizes`) before its output goes into something sold.
 - Anything that needs admin on the PC is one line for the user to paste into an admin PowerShell.
   Never widen the firewall rule or make `render` an administrator.

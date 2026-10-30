@@ -72,9 +72,15 @@ The main path above is a **Mac controlling a Windows PC**. Other mixes:
 ./local/local.py ask local/examples-asks.jsonl --out out/
 ./local/local.py transcribe talk.m4a --out out/                              # .txt, .srt, word timings
 ./mac/pcjob run my-job-folder --fetch out/                                   # anything else: a folder with a job.ps1
+python3 imagegen/audio_check.py out/sounds/ --fix out/game/                 # is a sound harsh? soundboard to listen to; --fix writes game-ready copies
+python3 imagegen/pick_sounds.py out/takes/ --ref liked.wav --dest out/picks/  # keep the best takes that sound like your reference clips
+python3 imagegen/sheet.py cmp.png asks.json krea2=out/krea2:"Krea 2"         # compare pictures from several models side by side
+python3 imagegen/watch.py                                                    # new open image models worth a test (public Hugging Face pages)
 ```
 `bump` asks the PC's MoGe-2 model for the shapes (the same model as `make mesh`), then does the rest on the Mac.
 It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pillow` (`shrink` needs only Pillow).
+`audio_check` and `pick_sounds` need ffmpeg (`brew install ffmpeg`) and numpy (`audio_check`) or numpy and scipy (`pick_sounds`);
+`sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
 `bump` and `shrink` are new; the PC step of `bump` has not yet run from this repo.
 Or just ask Claude Code in this folder: *"make me 10 coin sounds"*. [CLAUDE.md](CLAUDE.md) tells it how.
 
