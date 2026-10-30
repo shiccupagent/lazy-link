@@ -33,6 +33,9 @@ options.json, every key optional:
                     warning (summary.json "warnings"): bounce-only light on a lone prop is near zero. Use allow_dark
                     only for a genuinely unlit mesh.
 
+No light at all fails in every mode, before the bake: sun 0, sky 0, no lamp above 0 energy, and no emissive
+material that reaches the output. allow_dark does not skip this; summary.json gives the counts.
+
 Materials: only a texture can make a material's alpha (a real cutout such as leaves). A factor alpha with no
 texture (glTF baseColorFactor.a, e.g. a prop exported with alpha 0 and MASK) is ignored for the bake, so the mesh
 bakes as opaque. The original material is put back before the GLB is written.
@@ -345,6 +348,84 @@ def setup_lights(sc, opts):
     return [sun], "default"
 
 
+def socket_positive(sock):
+    """True when a socket feeds real light: it is linked (its value is not known here, so it counts), or its
+    value is above zero (a colour counts by its largest channel)."""
+    if sock.is_linked:
+        return True
+    value = sock.default_value
+    level = max(tuple(value)[:3]) if hasattr(value, "__len__") else float(value)
+    return level > 0.0
+
+
+def upstream(node, seen):
+    """Adds every node that feeds this one, directly or through other nodes, to seen."""
+    if node.name in seen:
+        return seen
+    seen.add(node.name)
+    for sock in node.inputs:
+        for link in sock.links:
+            upstream(link.from_node, seen)
+    return seen
+
+
+def emits(mat):
+    """True when an emitter reaches the material output: an Emission shader, or a Principled BSDF with emission."""
+    tree = mat.node_tree
+    if tree is None:
+        return False
+    live = set()
+    for node in tree.nodes:
+        if node.type == "OUTPUT_MATERIAL":
+            upstream(node, live)
+    for node in tree.nodes:
+        if node.name not in live:
+            continue
+        if node.type == "EMISSION":
+            col, strength = node.inputs["Color"], node.inputs["Strength"]
+        elif node.type == "BSDF_PRINCIPLED":
+            col, strength = node.inputs.get("Emission Color"), node.inputs.get("Emission Strength")
+            if col is None or strength is None:
+                continue
+        else:
+            continue
+        if socket_positive(col) and socket_positive(strength):
+            return True
+    return False
+
+
+def sky_light(world):
+    """(strength, lit) for the world. With nodes: the Background strength, lit when its strength and its colour
+    both feed light. Without nodes: the world colour is the light."""
+    if world is None:
+        return 0.0, False
+    if not world.use_nodes or world.node_tree is None:
+        level = float(max(tuple(world.color)[:3]))
+        return level, level > 0.0
+    bg = next((n for n in world.node_tree.nodes if n.type == "BACKGROUND"), None)
+    if bg is None:
+        return 0.0, False
+    color, strength = bg.inputs["Color"], bg.inputs["Strength"]
+    colour_lit = socket_positive(color)
+    level = float(strength.default_value) if colour_lit else 0.0
+    return level, colour_lit and socket_positive(strength)
+
+
+def light_census(sc, meshes):
+    """(sun, sky, lamps, emissive, lit) for the scene as it stands: sun is the strongest sun (the file's or the
+    default one), sky the world strength, lamps the non-sun lights above zero energy, emissive the materials on
+    the meshes that emit light. lit is False only when all of them say there is no light."""
+    lights = [o.data for o in sc.objects if o.type == "LIGHT"]
+    suns = [lt.energy for lt in lights if lt.type == "SUN"]
+    sun = float(max(suns)) if suns else 0.0
+    lamps = sum(1 for lt in lights if lt.type != "SUN" and lt.energy > 0.0)
+    sky, sky_lit = sky_light(sc.world)
+    mats = {m.name: m for o in meshes for m in o.data.materials if m is not None}
+    emissive = sum(1 for m in mats.values() if emits(m))
+    lit = sun > 0.0 or sky_lit or lamps > 0 or emissive > 0
+    return sun, sky, lamps, emissive, lit
+
+
 # ---------- per-mesh work ----------
 
 def prepare_mesh(o):
@@ -599,6 +680,20 @@ def main():
         log(f"uv {o.name}: coverage {after[o.name]['coverage_pct']}%, overlap {after[o.name]['overlap_pct']}%")
 
     added, lights_used = setup_lights(sc, opts)
+    sun, sky, n_lamps, n_emissive, lit = light_census(sc, meshes)
+    log(f"light: sun {sun:.1f}, sky {sky:.1f}, {n_lamps} lamps, {n_emissive} emissive")
+    if not lit:
+        # no light means no map can hold anything: stop before the bake, in every mode
+        nolight = f"scene has no light: sun {sun:.1f}, sky {sky:.1f}, {n_lamps} lamps, {n_emissive} emissive"
+        put_back_alpha(swapped)
+        summary = dict(mode=opts["mode"], input=src.name, device=device, device_names=device_names,
+                       meshes=len(meshes), allow_dark=opts["allow_dark"], dark_allowed=[], warnings=[],
+                       opaque_for_bake=[r["mat"].name for r in swapped], maps={}, status="failed",
+                       failures=[nolight])
+        (out / "summary.json").write_text(json.dumps(summary, indent=1))
+        print("BAKE_SUMMARY " + json.dumps(summary), flush=True)
+        raise SystemExit("BAKE FAILED: " + nolight + ". No GLB written. Add a lamp, an emissive material, "
+                         "or sun or sky strength above 0.")
     if sc.world is None:
         sc.world = bpy.data.worlds.new("BakeWorld")
         sc.world.use_nodes = True

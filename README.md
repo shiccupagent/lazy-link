@@ -149,6 +149,8 @@ Each `<mesh>_lightmap.json` says how to use its map:
 ```
 `intensity` is the three.js `lightMapIntensity` (pi, divided by the gain, because three.js divides lightmaps by pi). `aoMap` is true for `hybrid`, so apply the AO map with it; for `full`, leave `aoMap` off.
 
+A scene with no light at all fails in every mode, before the bake: sun 0, sky 0, no lamp, and no emissive material. The job says `scene has no light: sun 0.0, sky 0.0, 0 lamps, 0 emissive`, no GLB is written, and `--allow-dark` does not skip it. An emissive material counts as light, so a neon-lit scene passes.
+
 A mesh whose AO bakes black or flat fails the job, and in `full` so does one whose light map bakes black: no GLB is written, and `summary.json` says `"status": "failed"` and names the mesh. In `hybrid` a black light map is only a warning (`bounce-only light map is very dark: little nearby surface to bounce from`): the GLB is written and the line goes under `warnings`. A black or flat AO still fails in `hybrid`, because then the mesh was not seen. Fix the scene first. `--allow-dark NAME` lets through only a mesh that really is unlit; it is listed as `dark_allowed` in `summary.json`.
 
 Materials: only a texture can make a surface transparent (leaves, cutouts). A factor alpha with no texture is baked as opaque, and the GLB's own materials are written back unchanged. A mesh with no UVs gets a placeholder UV layer named `UVMap`, which becomes TEXCOORD_0, so the bake layer lands in TEXCOORD_1.

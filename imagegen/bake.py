@@ -16,6 +16,10 @@ Modes (--mode, default hybrid; the sidecar says which one was baked). Which one 
   hybrid  bounce only. For scenes that keep realtime lights and apply aoMap. A prop on its own has almost no
           bounce, so its light map is near black: a warning, not a failure. A prop on its own belongs in full.
 
+Every mode fails before the bake when the scene has no light at all: sun 0, sky 0, no lamp, and no emissive
+material (an emissive material counts as light, so a neon-lit scene passes). The job says "scene has no light:
+sun 0.0, sky 0.0, 0 lamps, 0 emissive", and --allow-dark does not skip it.
+
 A mesh whose AO is black or flat (all 1) fails the job, and in full so does one whose light map is black: no GLB
 is written, and summary.json says "status": "failed" with the reasons. In hybrid a black light map is a warning
 ("bounce-only light map is very dark"), listed under warnings in summary.json. --allow-dark NAME[,NAME] lets a
@@ -161,7 +165,8 @@ def _submit(ig, files, ps1, out, timeout, wait):
 def bake(glb, out, timeout=DEFAULT_TIMEOUT, wait=WAIT_LIMIT, **opts):
     """Bake light maps and AO for one .glb (or the test room when glb is None). Returns the summary dict
     from DIR/summary.json. Raises SystemExit when the PC job fails, writes no summary, or reports a failed
-    status (a black or flat AO, or a black light map in full; allow_dark lets a genuinely unlit mesh through)."""
+    status (a black or flat AO, a black light map in full, or a scene with no light in any mode; allow_dark lets a
+    genuinely unlit mesh through, never a dark scene)."""
     ig = _imagegen()
     if ig.load_pcjob().POSIX:   # refused before anything is woken or sent
         raise SystemExit("bake: Windows PC only for now")
