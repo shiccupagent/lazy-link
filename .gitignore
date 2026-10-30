@@ -4,3 +4,4 @@ pc/mac-key.pub
 reports/
 __pycache__/
 .DS_Store
+*.local.md
