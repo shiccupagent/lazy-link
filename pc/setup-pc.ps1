@@ -12,9 +12,6 @@ What it changes (undo-pc.ps1 reverses all of it):
   5. A work folder (C:\lazylink by default) that "lazylink" can write to.
   6. The job runner: a scheduled task that runs jobs as "lazylink", even when nobody is signed in.
   7. Turns on Wake on Magic Packet on the wired network adapter, if it has the setting.
-  8. Your extra model folders (listed in ComfyUI's extra_model_paths.yaml, or given with -ExtraModelFolder)
-     get a DENY for "lazylink" on writing, deleting and changing permissions, so a job can read your models
-     but never change them. Your own account is not affected. undo-pc.ps1 removes these locks.
 Then it shows the address, the network card's MAC address and the SSH fingerprint your Mac
 needs, and saves them to <work folder>\pc-info.json (the Mac reads it when it pairs).
 
@@ -29,8 +26,7 @@ finish, then run Setup-PC again. After the upgrade, pair again from the Mac.
 param(
     [switch]$DryRun,
     [string]$WorkRoot = 'C:\lazylink',
-    [string]$MacKeyFile = (Join-Path $PSScriptRoot 'mac-key.pub'),
-    [string[]]$ExtraModelFolder = @()     # more folders to lock read-only for the job account (in addition to ComfyUI's list)
+    [string]$MacKeyFile = (Join-Path $PSScriptRoot 'mac-key.pub')
 )
 $ErrorActionPreference = 'Stop'
 
@@ -263,41 +259,6 @@ Step "work folder $WorkRoot ($User may write there)" {
     foreach ($d in 'jobs', 'runner', 'tools', 'models', 'tmp') { New-Item -ItemType Directory -Path (Join-Path $WorkRoot $d) -Force | Out-Null }
     icacls $WorkRoot /grant "${User}:(OI)(CI)M" | Out-Null
 }
-# 5b. Lock the extra model folders for the job account -----------------------------------------------
-# A DENY beats any allow: the job account can read your models but cannot write, delete or change their
-# permissions, even in a folder it can reach. Your own account is not affected. The folders come from
-# ComfyUI's list (written by `imagegen.py setup`, so run Setup-PC again after that) and -ExtraModelFolder.
-# The list is written before anything is locked, so undo-pc.ps1 knows what to unlock even if this stops early.
-$LocksFile = Join-Path $SshDir 'lazy-link-locks.json'
-$comfyYaml = Join-Path $WorkRoot 'tools\ComfyUI\extra_model_paths.yaml'
-$lockDirs = @()
-if (Test-Path $comfyYaml) {
-    # Extra folders are indented 4 spaces under each kind. The model library (under the work folder) is skipped below.
-    $lockDirs += @(Get-Content $comfyYaml | Where-Object { $_ -match '^    \S' } | ForEach-Object { $_.Trim() })
-}
-$lockDirs += @($ExtraModelFolder)
-$safeDirs = @()
-foreach ($d in @($lockDirs | Where-Object { $_ })) {
-    $d = $d.TrimEnd('\', '/')
-    if ($d -match '^[A-Za-z]:$') { continue }                                            # a drive root: never
-    if ($d.StartsWith($WorkRoot, [StringComparison]::OrdinalIgnoreCase)) { continue }     # our own folders
-    if ($d.StartsWith($LegacyRoot, [StringComparison]::OrdinalIgnoreCase)) { continue }
-    if (Test-Path -LiteralPath $d -PathType Container) { $safeDirs += $d }
-}
-$lockDirs = @($safeDirs | Select-Object -Unique)
-if ($lockDirs.Count -gt 0) {
-    Step "lock $($lockDirs.Count) extra model folder(s) read-only for '$User' (no write, delete or permission changes; your own account is not affected)" {
-        $lockSid = (Get-LocalUser -Name $User).SID.Value
-        $prev = if (Test-Path $LocksFile) { @((Get-Content $LocksFile -Raw | ConvertFrom-Json).folders) } else { @() }
-        @{ sid = $lockSid; folders = @(@($prev) + @($lockDirs) | Select-Object -Unique) } | ConvertTo-Json | Set-Content -Path $LocksFile -Encoding ascii
-        foreach ($d in $lockDirs) {
-            icacls $d /deny "*${lockSid}:(OI)(CI)(W,D,DC,WDAC,WO)" /T /C | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "icacls could not lock $d. Check the folder, then run Setup-PC again." }
-        }
-        Note "   locked: $($lockDirs.Count) folder(s); undo-pc.ps1 removes the locks"
-    }
-}
-
 Step 'start sshd now and at every boot' { Set-Service sshd -StartupType Automatic; Restart-Service sshd -Force }
 
 # 6. The job runner -----------------------------------------------------------------------------------

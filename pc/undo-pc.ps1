@@ -1,8 +1,8 @@
 #Requires -RunAsAdministrator
 <#
 undo-pc.ps1 - reverses setup-pc.ps1. Run it through Undo-PC.cmd (double-click).
-  Stops SSH logins, puts the original sshd_config back, removes the firewall rule, the read-only
-  locks on your model folders (only the DENY entries Setup-PC added) and the hidden "lazylink" account. It also removes anything left from before 2026-10-30, when the
+  Stops SSH logins, puts the original sshd_config back, removes the firewall rule and the
+  hidden "lazylink" account. It also removes anything left from before 2026-10-30, when the
   account was "render" and the folder C:\render. The work folder is kept unless
   -RemoveWorkFolder is given; OpenSSH Server stays installed (but stopped) unless
   -RemoveOpenSSH is given.
@@ -54,19 +54,6 @@ Remove-Item (Join-Path $SshDir 'lazylink_authorized_keys') -ErrorAction Silently
 Remove-Item (Join-Path $SshDir 'render_authorized_keys') -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -ErrorAction SilentlyContinue
 Get-NetFirewallRule -Name 'LazyLink-SSH', 'RenderLink-SSH' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-# The read-only locks setup-pc.ps1 put on your model folders: only its DENY entries are removed. Done before the
-# account goes, using the SID the lock file recorded (a deleted account's SID can still be named in icacls).
-$LocksFile = Join-Path $SshDir 'lazy-link-locks.json'
-if (Test-Path $LocksFile) {
-    $locks = Get-Content $LocksFile -Raw | ConvertFrom-Json
-    if ($locks.sid) {
-        foreach ($d in @($locks.folders)) {
-            if ($d -and (Test-Path -LiteralPath $d)) { icacls $d /remove:d "*$($locks.sid)" /T /C | Out-Null }
-        }
-        Write-Host 'read-only locks removed from your model folders'
-    }
-    Remove-Item $LocksFile -ErrorAction SilentlyContinue
-}
 foreach ($a in $Accounts) { Remove-ItemProperty -Path $SpecialKey -Name $a -ErrorAction SilentlyContinue }
 foreach ($a in $Accounts) {
     $acct = Get-LocalUser -Name $a -ErrorAction SilentlyContinue

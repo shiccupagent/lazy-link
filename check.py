@@ -88,25 +88,6 @@ def plan(c):
     return dict(gpu=gpu, vram=vram, ram=ram, rows=rows, download=download, cmds=cmds)
 
 
-def extra_folder_lines(f, cfg):
-    """Lines for one extra model folder from check.json. Only the drive letter comes from the PC; the full path is
-    looked up here in config.json, so it is never written into a report."""
-    kind, drive = f.get("kind") or "", (f.get("drive") or "")
-    where = f"{kind} on {drive}"
-    if not f.get("exists"):
-        return [("!", f"Extra model folder ({where}) is missing, or its drive is not connected. Its models can't be used until it is back.")]
-    if not f.get("readable"):
-        paths = [p for p in cfg.get(kind, []) if p.replace("\\", "/").upper().startswith(drive.upper())]
-        path = paths[0].replace("/", "\\") if paths else "<the folder from config.json>"
-        return [("!", f"The lazylink account can't read the extra model folder ({where}). In an admin PowerShell on the PC, "
-                      f"paste one line: icacls \"{path}\" /grant lazylink:(OI)(CI)RX")]
-    n = f.get("model_files") or 0
-    count = f"{n}+ files" if n >= 500 else f"{n} files"
-    if f.get("locked"):
-        return [("✔", f"Extra model folder ({where}): {count}, read-only for Lazy Link")]
-    return [("!", f"Extra model folder ({where}): {count}, not locked read-only yet. Run pc\\Setup-PC.cmd on the PC again to lock it.")]
-
-
 def health(c, p):
     """(mark, text) lines: ✔ fine, ! worth fixing, ✘ blocks Lazy Link."""
     out = []
@@ -168,8 +149,6 @@ def health(c, p):
         out.append(("!", f"Only {free} GB free on {root}; the recommended models need about {p['download']:.0f} GB plus room to work. "
                          + (f"Models can live on {', '.join(roomy)}: see extra_model_folders in config.example.json."
                             if roomy else "Free some space (System Settings > General > Storage on a Mac; Settings > System > Storage on Windows).")))
-    for f in c.get("extra_folders") or []:   # Windows only: check.ps1 looks at each extra model folder
-        out += extra_folder_lines(f, pc.CFG.get("extra_model_folders") or {})
     nets = c.get("network") or []
     cable = any(n["kind"] == "cable" and n["connected"] for n in nets)
     out.append(("✔" if cable else "!", "Network cable connected" if cable else

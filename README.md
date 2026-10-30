@@ -106,9 +106,6 @@ price feed instead. Keep `cheap_hours` set too: it is used if the feed is down.
 
 Installed before 2026-10-30? Re-run Setup-PC; it renames `render` to `lazylink` and keeps your models. Then pair again from the Mac.
 
-Have model folders in `extra_model_folders`? After the first `./imagegen/imagegen.py setup`, double-click `pc\Setup-PC.cmd` once more.
-It locks those folders read-only for jobs (the lock needs admin, so only Setup-PC can add it).
-
 ## Safety, in plain words
 - **A separate, hidden, standard account** (`lazylink`) runs every job. It is not an administrator,
   can't sign in at the keyboard, and its password is random and never shown.
@@ -116,12 +113,9 @@ It locks those folders read-only for jobs (the lock needs admin, so only Setup-P
 - **Home network only.** The firewall opens port 22 only on networks Windows calls *Private*, and
   only to addresses on your own home network. ComfyUI and the chat model listen on 127.0.0.1 (the
   PC itself), never the network.
-- **Your models are locked for jobs.** Model folders you list in `config.json` (`extra_model_folders`) can be read by
-  jobs but not written, deleted or re-permissioned. Setup-PC adds this lock; Undo-PC removes it.
 - **Your PC, your rules.** `pcjob sleep` refuses while someone is signed in and using the PC.
   A job that woke the PC puts it back to sleep afterwards, and only then.
 - **Undo:** double-click `pc\Undo-PC.cmd` (add `-RemoveWorkFolder -RemoveOpenSSH` to remove everything).
-- **Questions about any of this:** [docs/FAQ.md](docs/FAQ.md).
 
 ## Licences of the models (check before you sell what you make)
 | Use | Model | Licence |
