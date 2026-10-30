@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """clone.py - copy your voice with AI, on your own PC. After you record (voice/install.py puts the recorder on the PC):
-bring the takes here, pick about 10 s of the cleanest lines per voice as that voice's reference (Chatterbox listens to
-the first 10 s), have Chatterbox on the PC say each voice's "try" line, and put your real recording and the AI copy
+bring the takes here, have Whisper (on the PC) check each take against its line, pick about 10 s of the cleanest
+correctly read lines per voice as that voice's reference (Chatterbox listens to the first 10 s), have Chatterbox on the PC say each voice's "try" line, and put your real recording and the AI copy
 side by side so you can hear how close it is.
 
   clone.py --setup              install Chatterbox on the PC (once: about 3.2 GB of model files plus 2.5 GB of torch)
   clone.py [--out DIR]          fetch the takes, make the references and AI copies (default reports/voice-copies/<today>)
   clone.py --src DIR --out DIR  use takes already on this computer (a test)
   --script FILE                 the script you recorded with, if not voice/scripts.json
+  --only you,friend             just these voices      --keep   use the takes fetched last time
+Misread takes still teach the voice; they just never become the reference (a misread reference makes the copy
+mispronounce). What Whisper heard per take: voice/recordings/_tx/match.json.
 
 Your recordings are personal: they stay on the PC and this computer (voice/recordings and voice/refs, both kept out of
 git), and the PC runs Chatterbox offline. Needs ffmpeg here. Windows PC only for now."""
-import argparse, datetime, json, shutil, subprocess, sys, tempfile, wave
+import argparse, datetime, difflib, json, re, shutil, subprocess, sys, tempfile, wave
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -21,6 +24,7 @@ import imagegen  # noqa: E402
 FF = "ffmpeg"
 REF_SECS = (10.0, 14.0)      # enough to fill Chatterbox's 10 s, short enough to stay on the best lines
 GOOD_PEAK = (-20.0, -1.0)    # takes outside this were too quiet or clipped
+GOOD_MATCH = 0.85            # Whisper's words vs the script line: below this the line was misread or mumbled
 TRIM = "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05,areverse," \
        "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.15,areverse"
 
@@ -52,13 +56,37 @@ def secs(path):
         return w.getnframes() / w.getframerate()
 
 
-def make_ref(voice, takes, dest):
-    """The cleanest spoken lines, in script order, trimmed, until REF_SECS is filled -> one WAV."""
+def words(s):
+    return re.sub(r"[^a-z0-9 ]", "", s.lower().replace("-", " ")).split()
+
+
+def transcribe(voices, takes):
+    """Whisper on the PC writes what was really said in each take (takes/_tx/<voice>/<NN>.txt) and how closely it
+    matches the script line (takes/_tx/match.json)."""
+    match = {}
+    for v in voices:
+        wavs = sorted((takes / v["id"]).glob("[0-9][0-9].wav"))
+        tx = takes / "_tx" / v["id"]
+        todo = [w for w in wavs if not (tx / f"{w.stem}.txt").is_file()]
+        if todo:
+            subprocess.run([sys.executable, str(HERE.parent / "local" / "local.py"), "transcribe", *map(str, todo), "--out", str(tx)], check=True)
+        for w in wavs:
+            said = (tx / f"{w.stem}.txt").read_text().strip()
+            line = v["lines"][int(w.stem) - 1]
+            r = 1.0 if line.get("room") else difflib.SequenceMatcher(None, words(line["text"]), words(said)).ratio()
+            match.setdefault(v["id"], {})[w.stem] = {"match": round(r, 2), "said": said}
+    (takes / "_tx" / "match.json").write_text(json.dumps(match, indent=1))
+    return match
+
+
+def make_ref(voice, takes, dest, match):
+    """The cleanest correctly read lines, in script order, trimmed, until REF_SECS is filled -> one WAV."""
     picked, total = [], 0.0
     with tempfile.TemporaryDirectory() as td:
         for i, line in enumerate(voice["lines"], 1):
             src = takes / voice["id"] / f"{i:02d}.wav"
-            if line.get("room") or not src.is_file() or not GOOD_PEAK[0] <= peak_db(src) <= GOOD_PEAK[1]:
+            if line.get("room") or not src.is_file() or match.get(voice["id"], {}).get(f"{i:02d}", {}).get("match", 0) < GOOD_MATCH \
+                    or not GOOD_PEAK[0] <= peak_db(src) <= GOOD_PEAK[1]:
                 continue
             t = Path(td) / f"{i:02d}.wav"
             subprocess.run([FF, "-v", "error", "-y", "-i", str(src), "-af", TRIM, "-ar", "48000", "-ac", "1", str(t)], check=True)
@@ -84,6 +112,8 @@ def main():
     ap.add_argument("--src")
     ap.add_argument("--out")
     ap.add_argument("--script", default=str(HERE / "scripts.json"))
+    ap.add_argument("--only", help="comma-separated voice ids")
+    ap.add_argument("--keep", action="store_true", help="use voice/recordings as fetched last time")
     a = ap.parse_args()
     if imagegen.load_pcjob().POSIX:
         sys.exit("voice: Windows PC only for now")
@@ -94,8 +124,10 @@ def main():
             print((Path(td) / "_log.txt").read_text(errors="replace"))
         return
     voices = json.loads(Path(a.script).read_text(encoding="utf-8"))["voices"]
+    if a.only:
+        voices = [v for v in voices if v["id"] in a.only.split(",")]
     takes = Path(a.src).resolve() if a.src else HERE / "recordings"
-    if not a.src:
+    if not a.src and not a.keep:
         with tempfile.TemporaryDirectory() as td:
             imagegen.send([], FETCH_PS1, [], "voice-fetch", td, 600)
             if not (Path(td) / "recordings").is_dir():
@@ -103,11 +135,12 @@ def main():
             if takes.exists():
                 shutil.rmtree(takes)
             shutil.copytree(Path(td) / "recordings", takes)
+    match = transcribe(voices, takes)
     refs = HERE / "refs"
     refs.mkdir(exist_ok=True)
     asks = []
     for v in voices:
-        got = make_ref(v, takes, refs / f"{v['id']}.wav")
+        got = make_ref(v, takes, refs / f"{v['id']}.wav", match)
         print(f"{v['name']}: " + (f"{got} s of clean takes in the reference" if got else "no clean takes yet, skipped"))
         if got:
             asks.append({"id": v["id"], "text": v["try"]["text"], "exaggeration": v["try"]["exaggeration"], "cfg": v["try"]["cfg"]})

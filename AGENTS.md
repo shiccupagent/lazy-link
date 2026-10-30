@@ -24,7 +24,10 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./mac/pcjob run DIR --fetch OUT`: any folder with a job.ps1 (PowerShell; write results to $env:RENDER_OUT).
 - `./video/webvideo.py PAGE.html --out DIR [--query "a=1"] [--seconds 6] [--fps 30] [--size 1920x1080]`: animated web page to .mp4 + .png, rendered on the PC (docs/WEB-TO-VIDEO.md).
 - `./voice/install.py [--script FILE]`: the walk-up voice recorder on a Windows PC ("Record voices" desktop icon).
-  `./voice/clone.py --setup` once, then `./voice/clone.py`: AI copies of the recorded voices (Chatterbox, offline on the PC).
+  `./voice/clone.py --setup` once, then `./voice/clone.py [--only ID,...]`: AI copies of the recorded voices (Chatterbox, offline
+  on the PC; Whisper checks every take, misread ones never become the reference).
+  `./voice/speak.py LINES.json --out DIR [--map speaker=voice] [--script FILE]`: narration in those voices; Whisper listens to
+  each sentence and anything not heard word for word is said again with a new seed (up to --rounds 4; report.json).
   Voice recordings are personal: never commit, upload or paste them; they stay in voice/recordings and voice/refs.
 - `./examples/try.py [spin|pictures|sounds|room|3d|all]`: end-to-end examples, each ending in a file to open (out/try/).
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap`.
