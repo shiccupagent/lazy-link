@@ -13,7 +13,12 @@
   "_doc": "uv (Astral, MIT/Apache-2.0) installs Python without admin rights; pinned release, sha256 from its GitHub release page",
   "url": "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-pc-windows-msvc.zip",
   "sha256": "7c38608c8a18ee137d748a1773053b07ec8f3a30fab49aebaa6f4e4efeceb019",
-  "size": 15685515
+  "size": 15685515,
+  "linux": {
+   "_doc": "same release, Linux builds (the Linux PC's job scripts read these; sha256 from the release's .sha256 files)",
+   "x86_64": {"url": "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-x86_64-unknown-linux-gnu.tar.gz", "sha256": "b4dfaef47d491a7296981f8374a4595f55dbf84e8937c8ecd2983574d8bb3da6", "size": 17249236},
+   "aarch64": {"url": "https://github.com/astral-sh/uv/releases/download/0.12.24/uv-aarch64-unknown-linux-gnu.tar.gz", "sha256": "5231be65f496304623895dacdbf1de8504fec90303684bdf05805aa34414dd21", "size": 16478994}
+  }
  },
  "library": "models/comfy",
  "model_kinds": [

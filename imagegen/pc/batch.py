@@ -18,7 +18,8 @@ WANT = json.load(open("want.json"))
 OUT = Path(os.environ["RENDER_OUT"])
 BASE = Path(os.environ["RENDER_ROOT"])
 ROOT = BASE / M["comfy"]["dir"]
-PYTHON = BASE / M["comfy"]["venv"] / "Scripts" / "python.exe"
+WINDOWS = os.name == "nt"
+PYTHON = BASE / M["comfy"]["venv"] / ("Scripts/python.exe" if WINDOWS else "bin/python")
 PORT = M["comfy"]["port"]
 URL = f"http://127.0.0.1:{PORT}"
 SCRATCH = BASE / "tmp" / "comfy"
@@ -146,8 +147,15 @@ def run_recipe(key, timings):
         print(json.dumps(row), flush=True)
 
 
+def site_packages():
+    venv = PYTHON.parent.parent
+    if WINDOWS:
+        return venv / "Lib" / "site-packages"
+    return next(venv.glob("lib/python*/site-packages"))
+
+
 def convert(names):
-    site = PYTHON.parent.parent / "Lib" / "site-packages"
+    site = site_packages()
     dirs = [site / "comfyui_workflow_templates_json" / "templates", ROOT / "blueprints"]
     paths = []
     for n in names:
@@ -155,8 +163,17 @@ def convert(names):
         if hit is None:
             sys.exit(f"batch: no template {n}")
         paths.append(str(hit))
-    node = os.environ.get("NODE", r"C:\Program Files\nodejs\node.exe")
-    r = subprocess.run([node, "to_api.mjs", URL, str(OUT), *paths], capture_output=True, text=True, timeout=600)
+    if WINDOWS:
+        node = os.environ.get("NODE", r"C:\Program Files\nodejs\node.exe")
+    else:
+        node = os.environ.get("NODE") or shutil.which("node") or "node"
+    env = dict(os.environ)
+    if not WINDOWS and not env.get("CHROME"):   # to_api.mjs drives Chrome; find a Linux one
+        chrome = next((shutil.which(c) for c in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser") if shutil.which(c)), None)
+        if chrome is None:
+            sys.exit("batch: convert needs Google Chrome or Chromium on this PC (install one, or set CHROME)")
+        env["CHROME"] = chrome
+    r = subprocess.run([node, "to_api.mjs", URL, str(OUT), *paths], capture_output=True, text=True, timeout=600, env=env)
     print(r.stdout, r.stderr)
     if r.returncode:
         sys.exit("batch: template conversion failed")
@@ -167,11 +184,14 @@ def main():
         (SCRATCH / d).mkdir(parents=True, exist_ok=True)
     log = open(OUT / "comfy.log", "w")
     t_start = time.time()
+    # a PC without an NVIDIA GPU (or a CPU-only torch) needs --cpu, or ComfyUI stops at import
+    cuda = subprocess.run([str(PYTHON), "-c", "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"]).returncode == 0
     comfy = subprocess.Popen(
         [str(PYTHON), "-u", "main.py", "--listen", "127.0.0.1", "--port", str(PORT),
          "--disable-all-custom-nodes", "--disable-auto-launch", "--output-directory", str(SCRATCH / "out"),
-         "--temp-directory", str(SCRATCH / "temp"), "--user-directory", str(SCRATCH / "user")],
+         "--temp-directory", str(SCRATCH / "temp"), "--user-directory", str(SCRATCH / "user")] + ([] if cuda else ["--cpu"]),
         cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+    print("ComfyUI on " + ("the GPU" if cuda else "the CPU (no CUDA torch: slow)"), flush=True)
     try:
         for _ in range(240):
             if comfy.poll() is not None:

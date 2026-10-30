@@ -9,7 +9,8 @@ import { basename, join } from 'node:path';
 import net from 'node:net';
 
 const [COMFY, OUT, ...FILES] = process.argv.slice(2);
-const CHROME = process.env.CHROME || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME = process.env.CHROME || (process.platform === 'win32'
+  ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : 'google-chrome');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const freePort = () => new Promise(res => { const s = net.createServer(); s.listen(0, () => { const p = s.address().port; s.close(() => res(p)); }); });
 

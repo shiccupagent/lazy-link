@@ -33,6 +33,16 @@ $py = Join-Path $env:RENDER_ROOT ((Get-Content models.json -Raw | ConvertFrom-Js
 exit $LASTEXITCODE
 """
 
+# the same job on a Linux PC (job.sh): ComfyUI's own venv python runs batch.py
+RUN_SH = r"""set -eu -o pipefail
+[ -n "${RENDER_ROOT:-}" ] || { echo "RENDER_ROOT is not set (run this as a job)" >&2; exit 3; }
+PY="$RENDER_ROOT/$(python3 -c 'import json; print(json.load(open("models.json"))["comfy"]["venv"])')/bin/python"
+[ -x "$PY" ] || { echo "no ComfyUI at $PY: run imagegen.py setup first" >&2; exit 3; }
+exec "$PY" -u batch.py
+"""
+
+LINUX_DIR = HERE / "linux"   # job.sh scripts for a Linux PC (the .ps1 files stay for Windows)
+
 
 def load_pcjob():
     loader = importlib.machinery.SourceFileLoader("pcjob", str(REPO / "mac" / "pcjob"))
@@ -51,11 +61,10 @@ def model_keys(s):
 
 
 def send(files, ps1, want, name, out, timeout, sh=None):
-    """Run a job on the PC: ps1 is the Windows script, sh the Linux one (only check.py has one so far)."""
+    """Run a job on the PC: ps1 is the Windows script, sh the Linux job.sh. Every command passes both."""
     pc = load_pcjob()
-    if pc.LINUX and sh is None:   # refuse before pc.wake(): nothing is woken for a command that cannot run
-        sys.exit("imagegen: not on Linux yet. This command needs the Windows PC's GPU scripts; "
-                 "a Linux PC runs only ./check.py for now.")
+    if pc.LINUX and sh is None:   # refuse before pc.wake(): nothing is woken for a command with no Linux script
+        sys.exit("imagegen: this command has no Linux script yet")
     woke = pc.wake()
     with tempfile.TemporaryDirectory() as td:
         job = Path(td) / "job"
@@ -78,7 +87,7 @@ def run(asks, keys, out, timeout):
     with tempfile.TemporaryDirectory() as td:
         a = Path(td) / "asks.json"
         json.dump(asks, open(a, "w"), indent=1)
-        send([HERE / "models.json", HERE / "pc" / "batch.py", a], RUN_PS1, keys, "imagegen", out, timeout)
+        send([HERE / "models.json", HERE / "pc" / "batch.py", a], RUN_PS1, keys, "imagegen", out, timeout, sh=RUN_SH)
     t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
     print(f"ComfyUI start {t['comfy_boot_s']} s")
     for r in t["runs"]:
@@ -97,7 +106,7 @@ def make(key, asks, out, timeout):
         files = [HERE / "models.json", HERE / "pc" / "batch.py", a,
                  (HERE / "recipes" / f"{r['template']}.api.json", f"recipes/{r['template']}.api.json")]
         files += [(base / x["image"], f"inputs/{x['image']}") for x in asks if "image" in x]
-        send(files, RUN_PS1, {"recipe": key}, f"imagegen-{key}", out, timeout)
+        send(files, RUN_PS1, {"recipe": key}, f"imagegen-{key}", out, timeout, sh=RUN_SH)
     t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
     print(f"ComfyUI start {t['comfy_boot_s']} s")
     for row in t["runs"]:
@@ -136,14 +145,15 @@ def main():
         # Blender writes warnings to stderr; 'Continue' keeps PowerShell from treating them as failures
         ps1 = ("$ErrorActionPreference = 'Continue'\n& $env:BLENDER -b --factory-startup -P render_glb.py -- glb $env:RENDER_OUT 2>&1 "
                "| ForEach-Object { \"$_\" } | Select-String 'rendered|Error|Traceback'\nexit $LASTEXITCODE\n")
-        send([HERE / "pc" / "render_glb.py"] + [(g, f"glb/{g.name}") for g in glbs], ps1, [], "imagegen-preview", d / "preview", 1800)
+        send([HERE / "pc" / "render_glb.py"] + [(g, f"glb/{g.name}") for g in glbs], ps1, [], "imagegen-preview", d / "preview", 1800,
+             sh=(LINUX_DIR / "preview.sh").read_text())
     elif a.cmd == "convert":
         out = HERE / "recipes"
         out.mkdir(exist_ok=True)
         with tempfile.TemporaryDirectory() as td:
             (Path(td) / "asks.json").write_text("[]")
             send([HERE / "models.json", HERE / "pc" / "batch.py", HERE / "pc" / "to_api.mjs", Path(td) / "asks.json"],
-                 RUN_PS1, {"convert": a.templates}, "imagegen-convert", out, 900)
+                 RUN_PS1, {"convert": a.templates}, "imagegen-convert", out, 900, sh=RUN_SH)
         for f in ("_log.txt", "_err.txt", "_status.json", "comfy.log", "timings.json"):
             (out / f).unlink(missing_ok=True)
     elif a.cmd == "sizes":
@@ -157,14 +167,15 @@ def main():
         print("Shared files are counted once per line; fetch never downloads a file twice.")
     elif a.cmd == "setup":
         out = REPO / "reports" / ("setup-" + time.strftime("%Y%m%d-%H%M%S"))
-        send([HERE / "models.json"], (HERE / "pc" / "setup-comfy.ps1").read_text(), [], "imagegen-setup", out, 3600)
+        send([HERE / "models.json"], (HERE / "pc" / "setup-comfy.ps1").read_text(), [], "imagegen-setup", out, 3600,
+             sh=(LINUX_DIR / "setup.sh").read_text())
         print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
     else:
         files = {MODELS["models"][k][part] for k in model_keys(a.models) for part in ("unet", "clip", "vae")} | {MODELS["cutout"]["model"]}
         files = sorted(files | {f for r in a.recipes.split(",") if r for f in MODELS["recipes"][r]["files"]})
         out = REPO / "reports" / ("fetch-" + time.strftime("%Y%m%d-%H%M%S"))
         send([HERE / "models.json"], (HERE / "pc" / "fetch.ps1").read_text(),
-             files, "imagegen-fetch", out, 4 * 3600)
+             files, "imagegen-fetch", out, 4 * 3600, sh=(LINUX_DIR / "fetch.sh").read_text())
         print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
 
 
