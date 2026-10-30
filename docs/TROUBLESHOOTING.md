@@ -1,5 +1,7 @@
 # Troubleshooting: what went wrong for us, and the fix
 
+**`check.py --tidy`, imagegen or local say the work folder isn't set.** If your PC runs an older runner, run `pc\Setup-PC.cmd` again; it upgrades the runner and keeps your models.
+
 **The Mac can't connect.**
 - The PC's network must be *Private* (Settings > Network & internet > your network > Private).
   On *Public*, the firewall rule doesn't apply. Setup warns you if it sees this.

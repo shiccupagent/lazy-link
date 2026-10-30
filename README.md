@@ -38,6 +38,7 @@ a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (r
    ```bash
    ./check.py            # graphics card, memory, disks, updates, wake settings -> which models fit
    ./check.py --setup    # then install exactly what it recommends
+   ./check.py --tidy     # old PC: sizes first; asks before deleting, and only Lazy Link's own files
    ```
    Or install by hand (no admin needed, all into `C:\render`):
    ```bash
@@ -55,7 +56,7 @@ The main path above is a **Mac controlling a Windows PC**. Other mixes:
 | Mac → Windows | the steps above | tested end to end |
 | Windows → Windows | [docs/WINDOWS-SMALL-COMPUTER.md](docs/WINDOWS-SMALL-COMPUTER.md) | installer tested on Windows 11; pairing not yet |
 | Linux → Windows | `./install-mac.sh` works on Linux too (it only uses `ssh-keygen`) | not yet tested |
-| Any → Linux | [docs/LINUX-PC.md](docs/LINUX-PC.md) | jobs and `check.py` tested in a Linux virtual machine; pictures, sound, 3D and chat on Linux come next |
+| Any → Linux | [docs/LINUX-PC.md](docs/LINUX-PC.md) | pictures, sound, chat and speech now run there; tested on CPU in a virtual machine; GPU not yet tested on real hardware |
 | Any → Mac | [docs/ROADMAP.md](docs/ROADMAP.md) | planned |
 
 ## Use it
