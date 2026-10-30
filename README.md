@@ -108,6 +108,7 @@ They need ffmpeg and `pip3 install numpy scipy pillow` on your small computer.
 ./imagegen/imagegen.py tile floor.png --out out/                             # seamless copy of a surface picture (no AI; a 2x2 preview shows the seams)
 ./imagegen/imagegen.py bump floor.png --out out/                             # bump maps: a normal map + a height map, so a flat picture looks raised in games and 3D
 ./imagegen/imagegen.py shrink out/red-mug__mesh.glb --out out/               # game-size .glb: 512 px JPEG textures instead of PNG
+python3 imagegen/bake.py model.glb --out out/bake/ --mode full               # light map + AO baked on the PC's GPU (Windows PC only, see below)
 ./local/local.py ask-one "Explain Wake-on-LAN in two sentences"
 ./local/local.py ask local/examples-asks.jsonl --out out/
 ./local/local.py transcribe talk.m4a --out out/                              # .txt, .srt, word timings
@@ -124,6 +125,35 @@ It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pill
 `sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
 `tile`, `bump` (with `--tile` and `--object`) and `shrink` are new; the PC step of `bump` has not yet run from this repo.
 Or just ask your AI agent in this folder: *"make me 10 coin sounds"*. [AGENTS.md](AGENTS.md) tells it how.
+
+### Bake light maps and ambient occlusion (Windows PC)
+```bash
+python3 imagegen/bake.py model.glb --out out/bake/ --mode full   # one .glb: light map + AO
+python3 imagegen/bake.py --make-test-scene --out out/test-room/  # built-in test room, to check the setup
+```
+`bake` lights a .glb once, so the game does not have to: `<mesh>_lightmap.png` (the light on each surface), `<mesh>_ao.png` (the dark corners, one channel), and `<stem>_baked.glb` with the bake in its second UV set (TEXCOORD_1). Blender's Cycles renders it on the PC's GPU. Windows PC only for now: any other PC stops with "bake: Windows PC only for now" before anything is sent.
+
+Which mode for which scene:
+
+| Scene | Mode |
+|---|---|
+| A prop on its own (table, crate, sign) | `full` |
+| A static backdrop, or a room with no realtime lights | `full` |
+| A game scene that keeps its realtime lights and applies `aoMap` | `hybrid` (the default) |
+
+`hybrid` on a prop on its own fails the dark check, because almost no light bounces onto it from nothing around it (the test table: 0.0028 against a 0.005 limit). Use `full` there.
+
+Each `<mesh>_lightmap.json` says how to use its map:
+```json
+{"mode": "full", "intensity": 3.141593, "colorSpace": "sRGB", "aoMap": false}
+```
+`intensity` is the three.js `lightMapIntensity` (pi, divided by the gain, because three.js divides lightmaps by pi). `aoMap` is true for `hybrid`, so apply the AO map with it; for `full`, leave `aoMap` off.
+
+A mesh that bakes black or flat fails the job: no GLB is written, and `summary.json` says `"status": "failed"` and names the mesh. Fix the scene first. `--allow-dark NAME` lets through only a mesh that really is unlit; it is listed as `dark_allowed` in `summary.json`.
+
+Materials: only a texture can make a surface transparent (leaves, cutouts). A factor alpha with no texture is baked as opaque, and the GLB's own materials are written back unchanged. A mesh with no UVs gets a placeholder UV layer named `UVMap`, which becomes TEXCOORD_0, so the bake layer lands in TEXCOORD_1.
+
+A job waits in the PC's queue: `--wait` (default 3 hours) counts the queue and the run, and the queue position prints while it waits. Other options (`--opt budget=2048`, `samples`, `lights`, ...) are listed in the header of `imagegen/pc/bake_blender.py`.
 
 ### Copy your own voice (Windows PC)
 ```bash
