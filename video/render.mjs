@@ -56,7 +56,7 @@ function findChrome() {
 
 // Set by main() once Chrome runs. A signal (the job runner stopping us) must still remove Chrome and its profile.
 let stopChrome = () => {};
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { stopChrome(); process.exit(130); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await stopChrome(); process.exit(130); });
 
 async function main() {
   const chromePath = findChrome();
@@ -81,7 +81,10 @@ async function main() {
     `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, `--window-size=${width},${height}`, '--no-first-run', 'about:blank'],
   { stdio: 'ignore' });
   chrome.on('error', (e) => { chromeError = e; });
-  stopChrome = () => { try { chrome.kill(); rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); } catch { /* best effort on a signal */ } };
+  // Wait for Chrome to really exit before deleting its profile: deleting straight after kill() races with a Chrome
+  // that is still shutting down and re-creates files, and the profile survives.
+  const chromeGone = () => new Promise((r) => { if (chrome.exitCode !== null || chrome.signalCode) return r(); chrome.once('exit', r); setTimeout(r, 4000); });
+  stopChrome = async () => { try { const gone = chromeGone(); chrome.kill(); await gone; await sleep(300); rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); } catch { /* best effort on a signal */ } };
   let ws = null;
   try {
     let page;
@@ -137,10 +140,8 @@ async function main() {
     console.log(`rendered ${frames} frames (${secs} s at ${fps} fps, ${width}x${height})`);
   } finally {
     ws?.close();
-    chrome.kill();
     server.close();
-    await sleep(1500);   // give Chrome a moment to let go of its profile folder (Windows)
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    await stopChrome();
   }
 }
 
