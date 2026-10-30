@@ -23,6 +23,9 @@ FINE = 0.45          # share of the picture's fine detail added on top
 CLASSIC_SLOPE = 0.8  # gentle: a stronger slope turns colour specks into fake bumps
 AO_STRENGTH = 1.6   # how dark the deepest hollows get (AO = 1 - this x depth below the local average height)
 AO_FLOOR = 0.35     # never darker than this, so baked shading can't fight the game's own lights
+SLOPE_LOW = 0.15    # mean slope (|xy|/z) under this: the game's light shows almost no relief (flat-painted stone and
+                    # planks came out ~0.05 in Swish Craft's pilot, rubble 0.40); bump warns, --slope steepens
+SLOPE_GAIN_MAX = 8  # --slope never steepens more than this (a map that flat is mostly noise)
 
 
 def load(p):
@@ -69,16 +72,35 @@ def ambient_occlusion(h, mode="nearest"):
     return np.clip(1 - AO_STRENGTH * cavity, AO_FLOOR, 1)
 
 
-def write(cn, moge_n, height, out_dir, name, mode):
-    save(combo(moge_detail(moge_n, mode), cn) * 0.5 + 0.5, out_dir / f"{name}_normal.png")
+def mean_slope(n):
+    """how tilted a normal map is on average, |xy| / z: 0 = flat"""
+    return float(np.mean(np.hypot(n[..., 0], n[..., 1]) / np.clip(n[..., 2], 1e-3, None)))
+
+
+def steepen(n, target):
+    """n with its xy scaled so the mean slope reaches target (raised only, gain at most SLOPE_GAIN_MAX). Per pixel,
+    so a wrapping map still wraps."""
+    s = mean_slope(n)
+    g = min(SLOPE_GAIN_MAX, target / max(s, 1e-6))
+    return n if g <= 1 else unit(n * [g, g, 1])
+
+
+def write(cn, moge_n, height, out_dir, name, mode, slope=None):
+    """Returns the normal map's mean slope (before, after --slope)."""
+    n = combo(moge_detail(moge_n, mode), cn)
+    before = mean_slope(n)
+    if slope:
+        n = steepen(n, slope)
+    save(n * 0.5 + 0.5, out_dir / f"{name}_normal.png")
     save(np.dstack([height] * 3), out_dir / f"{name}_height.png")
     save(np.dstack([ambient_occlusion(height, mode)] * 3), out_dir / f"{name}_ao.png")
+    return before, mean_slope(n)
 
 
-def finish(picture, moge_normal_png, moge_depth_png, out_dir, name):
+def finish(picture, moge_normal_png, moge_depth_png, out_dir, name, slope=None):
     """Writes out_dir/<name>_normal.png (the default style), _height.png (MoGe depth, detail only) and _ao.png."""
     _, cn = classic(load(picture))
-    write(cn, load(moge_normal_png) * 2 - 1, high_pass(load(moge_depth_png)[..., 0], 32), out_dir, name, "nearest")
+    return write(cn, load(moge_normal_png) * 2 - 1, high_pass(load(moge_depth_png)[..., 0], 32), out_dir, name, "nearest", slope)
 
 
 SHIFTS = {"": (0, 0), "__sx": (0, 1), "__sy": (1, 0), "__sxy": (1, 1)}   # bump --tile: the picture moved by half (rows, columns)
@@ -90,7 +112,7 @@ def shifted(a, sy, sx, back=False):
     return np.roll(a, (d * sy * (h // 2), d * sx * (w // 2)), axis=(0, 1))
 
 
-def finish_tiled(picture, maps, out_dir, name):
+def finish_tiled(picture, maps, out_dir, name, slope=None):
     """Like finish() for a seamless texture. maps[key] = (normal png, depth png) for the picture moved by half as
     SHIFTS[key] says: each run is wrong near its own edges, so every spot is taken from the runs where it sits far
     from an edge (weight sin^2 of the position per axis: 1 in the middle, 0 at the edges; the moved run gets cos^2,
@@ -105,7 +127,7 @@ def finish_tiled(picture, maps, out_dir, name):
         ay, ax = np.sin(np.pi * (np.arange(h) + 0.5) / h) ** 2, np.sin(np.pi * (np.arange(w) + 0.5) / w) ** 2
         k = np.outer(1 - ay if sy else ay, 1 - ax if sx else ax)
         n_sum, d_sum = n_sum + k[..., None] * n, d_sum + k * d
-    write(cn, unit(n_sum), d_sum, out_dir, name, "wrap")
+    return write(cn, unit(n_sum), d_sum, out_dir, name, "wrap", slope)
 
 
 OBJECT_FINE = 0.25   # objects: share of the classic fine detail on top of MoGe's whole shape (more turns paint grain into blotches)

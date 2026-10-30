@@ -10,7 +10,8 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
   imagegen.py fetch [--models krea2] [--recipes audio,mesh]   download missing model files (official repos, sha256-checked)
   imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh) or maps (normal + depth) from a recipe
   imagegen.py tile PICTURE... --out DIR      seamless copy of each surface picture, on this computer, no AI (tiles.py)
-  imagegen.py bump PICTURE... --out DIR [--tile]   bump maps for surface pictures: DIR/<name>_normal/_height/_ao.png (runs make maps);
+  imagegen.py bump PICTURE... --out DIR [--tile] [--slope 0.35]   bump maps for surface pictures: DIR/<name>_normal/_height/_ao.png (runs make maps);
+                                             prints each normal map's mean slope, warns under 0.15; --slope steepens flat ones
                                              --tile for seamless pictures (the maps wrap too)
                                              --object [--plain] for sprites and whole scenes: DIR/<name>_normal.png only
   imagegen.py shrink GLB... --out DIR        phone-size copies of .glb files: DIR/<name>-small.glb (512 px JPEG textures)
@@ -147,6 +148,7 @@ def main():
     bp.add_argument("--tile", action="store_true", help="the pictures are seamless: make maps that wrap too")
     bp.add_argument("--object", action="store_true", help="objects or whole scenes (sprites, paintings): keep the whole shape; normal only")
     bp.add_argument("--plain", action="store_true", help="with --object: take the colours out first, so paint colour reads as no shape")
+    bp.add_argument("--slope", type=float, help="steepen flat normal maps to this mean slope, e.g. 0.35 (never flattens; gain at most 8x)")
     tl = sub.add_parser("tile", help="seamless copies of surface pictures (tiles.py); needs numpy, scipy and Pillow here")
     tl.add_argument("pictures", nargs="+"); tl.add_argument("--out", required=True)
     tl.add_argument("--overlap", type=float, help="share laid over itself to find the cut (tiles.OVERLAP)")
@@ -184,6 +186,8 @@ def main():
             sys.exit("imagegen bump: two pictures have the same name (file name without extension); rename one")
         if a.tile and a.object:
             sys.exit("imagegen bump: --tile is for surfaces, --object for objects; pick one")
+        if a.slope and a.object:
+            sys.exit("imagegen bump: --slope is for surfaces (an object's flat background would skew it)")
         with tempfile.TemporaryDirectory() as td:
             asks = Path(td) / "asks.json"
             names = []   # (name in asks.json, file in the job folder)
@@ -209,10 +213,14 @@ def main():
                     print(f"bump: {out / (f.stem + '_normal.png')}")
                     continue
                 if a.tile:
-                    bumpmaps.finish_tiled(f, {k: (m / f"{f.stem}{k}__maps.png", m / f"{f.stem}{k}__maps-1.png") for k in bumpmaps.SHIFTS}, out, f.stem)
+                    before, after = bumpmaps.finish_tiled(f, {k: (m / f"{f.stem}{k}__maps.png", m / f"{f.stem}{k}__maps-1.png") for k in bumpmaps.SHIFTS}, out, f.stem, a.slope)
                 else:
-                    bumpmaps.finish(f, *own, out, f.stem)
-                print(f"bump: {out / (f.stem + '_normal.png')} (+ _height, _ao)")
+                    before, after = bumpmaps.finish(f, *own, out, f.stem, a.slope)
+                slope = f"slope {before:.2f}" + (f" -> {after:.2f}" if abs(after - before) > 0.005 else "")
+                print(f"bump: {out / (f.stem + '_normal.png')} (+ _height, _ao)  {slope}")
+                if after < bumpmaps.SLOPE_LOW:
+                    print(f"bump: WARN {f.stem}: normal map nearly flat (mean slope {after:.2f} < {bumpmaps.SLOPE_LOW}); "
+                          "the game's light will show little relief. Try --slope 0.35")
     elif a.cmd == "shrink":
         try:
             import shrink_glb
