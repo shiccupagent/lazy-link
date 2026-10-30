@@ -217,7 +217,7 @@
   }
  },
  "recipes": {
-  "_doc": "converted ComfyUI templates (recipes/<template>.api.json, made by `imagegen.py convert`); params map a short name to [node id, input]; fixed = always set",
+  "_doc": "converted ComfyUI templates (recipes/<template>.api.json, made by `imagegen.py convert`; the exception is moge_maps, hand-written: see its _doc); params map a short name to [node id, input]; fixed = always set",
   "sfx": {
    "label": "Stable Audio 3 small SFX",
    "licence": "Stability AI Community: free while yearly revenue < $1M",
@@ -319,6 +319,25 @@
    "_doc": "game-ready defaults: 40k faces, 2048 texture (the template's 700k / 4096 is for film); prompt text = the input picture",
    "min_vram_gb": 16,
    "_min_vram_note": "check.py estimate: 3D needs far more working memory than its files; measured only on a 24 GB card"
+  },
+  "maps": {
+   "label": "MoGe-2 (picture to normal map + depth)",
+   "licence": "MIT: any commercial use (the model the mesh recipe already ships)",
+   "template": "moge_maps",
+   "files": [
+    "moge_2_vitl_normal_fp16.safetensors"
+   ],
+   "params": {
+    "resolution": [
+     "3",
+     "resolution_level"
+    ]
+   },
+   "image": [
+    "1",
+    "image"
+   ],
+   "_doc": "hand-written workflow, not converted: ComfyUI has no template for it, so recipes/moge_maps.api.json is edited by hand. <name>__maps.png = normal map (OpenGL, +Y up, the glTF/three.js convention), <name>__maps-1.png = depth (white = near). MoGe estimates camera-space geometry, so a flat texture shot head-on gives a usable surface normal map; bumpmaps.py strips any overall tilt."
   }
  }
 }

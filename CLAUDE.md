@@ -9,7 +9,9 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./check.py [--setup]`: what the PC has, what to fix, which models fit (only reads the PC).
 - `./imagegen/imagegen.py one "prompt" --out DIR [--model krea2|klein|zimage] [--size WxH] [--cutout]`
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
-- `./imagegen/imagegen.py make audio|sfx|mesh ASKS.json --out DIR`: sounds/music, or picture to 3D.
+- `./imagegen/imagegen.py make audio|sfx|mesh|maps ASKS.json --out DIR`: sounds/music, picture to 3D, or picture to normal + depth maps (MoGe-2).
+- `./imagegen/imagegen.py bump PICTURE... --out DIR`: bump maps (`<name>_normal.png` + `_height.png`) from a surface picture; runs `make maps` on the PC, then needs numpy, scipy, Pillow on this computer.
+- `./imagegen/imagegen.py shrink GLB... --out DIR`: phone-size copies of `make mesh` .glb files (512 px JPEG textures); needs Pillow on this computer.
 - `./imagegen/imagegen.py preview DIR`: turntable pictures of every .glb (needs Blender on the PC).
 - `./local/local.py ask ASKS.jsonl --out DIR` / `ask-one "..."` / `transcribe FILE... --out DIR`.
 - `./mac/pcjob run DIR --fetch OUT`: any folder with a job.ps1 (PowerShell; write results to $env:RENDER_OUT).
@@ -30,7 +32,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - config.json is personal (PC address, network card). Never commit it or paste it anywhere.
 - New model: add it to imagegen/models.json (official URL, size and sha256 from the Hugging Face API,
   licence), then `imagegen.py fetch`. ComfyUI templates become recipes with `imagegen.py convert`
-  (generated files: rerun it, never hand-edit recipes/). convert needs Node 22 and Chrome on the PC.
+  (generated files: rerun it, never hand-edit recipes/, except moge_maps.api.json: hand-written, ComfyUI has no
+  template for it; its note is in models.json "maps"). convert needs Node 22 and Chrome on the PC.
 - Before anything leaves the machine: `tools/privacy-scan.sh` (repo) and `tools/frame-scan.sh VIDEO` (videos).
 - `"cheap_hours_auto": true` in config.json: keep `cheap_hours` right for the user. Ask once which electricity
   company and plan they have, or their town (never guess; it stays in config.json only). Look up that plan's

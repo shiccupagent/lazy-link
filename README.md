@@ -66,11 +66,16 @@ The main path above is a **Mac controlling a Windows PC**. Other mixes:
 ./imagegen/imagegen.py make audio imagegen/examples/sounds.json --out out/   # sounds / music
 ./imagegen/imagegen.py make mesh imagegen/examples/mesh.json --out out/      # picture -> 3D (.glb)
 ./imagegen/imagegen.py preview out/                                          # 3D turntable pictures (needs Blender on the PC)
+./imagegen/imagegen.py bump floor.png --out out/                             # bump maps: a normal map + a height map, so a flat picture looks raised in games and 3D
+./imagegen/imagegen.py shrink out/red-mug__mesh.glb --out out/               # game-size .glb: 512 px JPEG textures instead of PNG
 ./local/local.py ask-one "Explain Wake-on-LAN in two sentences"
 ./local/local.py ask local/examples-asks.jsonl --out out/
 ./local/local.py transcribe talk.m4a --out out/                              # .txt, .srt, word timings
 ./mac/pcjob run my-job-folder --fetch out/                                   # anything else: a folder with a job.ps1
 ```
+`bump` asks the PC's MoGe-2 model for the shapes (the same model as `make mesh`), then does the rest on the Mac.
+It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pillow` (`shrink` needs only Pillow).
+`bump` and `shrink` are new; the PC step of `bump` has not yet run from this repo.
 Or just ask Claude Code in this folder: *"make me 10 coin sounds"*. [CLAUDE.md](CLAUDE.md) tells it how.
 
 **Batch your asks.** Each job spends 15-55 s starting ComfyUI or loading a model; after that, every

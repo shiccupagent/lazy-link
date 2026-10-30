@@ -8,7 +8,9 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
   imagegen.py run ASKS.json --out DIR [--models zimage,klein,krea2] [--timeout S]
   imagegen.py one "prompt" --out DIR [--model krea2] [--size 1024x1024] [--seed N] [--name N]
   imagegen.py fetch [--models krea2] [--recipes audio,mesh]   download missing model files (official repos, sha256-checked)
-  imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio) or 3D (mesh) from a converted template
+  imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh) or maps (normal + depth) from a recipe
+  imagegen.py bump PICTURE... --out DIR      bump maps for surface pictures: DIR/<name>_normal.png + _height.png (runs make maps)
+  imagegen.py shrink GLB... --out DIR        phone-size copies of .glb files: DIR/<name>-small.glb (512 px JPEG textures)
   imagegen.py preview DIR                    four turntable renders of every .glb in DIR (Blender on the PC) -> DIR/preview/
   imagegen.py convert TEMPLATE ...           ComfyUI template -> recipes/TEMPLATE.api.json (generated; rerun, never hand-edit)
 
@@ -134,6 +136,10 @@ def main():
     mk.add_argument("asks"); mk.add_argument("--out", required=True); mk.add_argument("--timeout", type=int, default=3600)
     cv = sub.add_parser("convert"); cv.add_argument("templates", nargs="+")
     pv = sub.add_parser("preview"); pv.add_argument("dir")
+    bp = sub.add_parser("bump", help="bump maps (normal + height) for surface pictures; needs numpy, scipy, Pillow here")
+    bp.add_argument("pictures", nargs="+"); bp.add_argument("--out", required=True); bp.add_argument("--timeout", type=int, default=1800)
+    sk = sub.add_parser("shrink", help="phone-size copies of .glb files (512 px JPEG textures); needs Pillow here")
+    sk.add_argument("glbs", nargs="+"); sk.add_argument("--out", required=True)
     a = p.parse_args()
     if a.cmd == "run":
         run(json.loads(Path(a.asks).read_text(encoding="utf-8-sig")), model_keys(a.models), a.out, a.timeout)
@@ -142,6 +148,34 @@ def main():
         run([{"name": a.name, "prompt": a.prompt, "w": w, "h": h, "seed": a.seed, "cutout": a.cutout}], model_keys(a.model), a.out, a.timeout)
     elif a.cmd == "make":
         make(a.recipe, Path(a.asks).resolve(), a.out, a.timeout)
+    elif a.cmd == "bump":
+        try:
+            import bumpmaps
+        except ImportError as e:
+            sys.exit(f"imagegen bump needs numpy, scipy and Pillow on this computer (pip3 install numpy scipy pillow): {e}")
+        out = Path(a.out).expanduser().resolve(); out.mkdir(parents=True, exist_ok=True)
+        pics = [Path(x).resolve() for x in a.pictures]
+        if len({f.stem for f in pics}) != len(pics):
+            sys.exit("imagegen bump: two pictures have the same name (file name without extension); rename one")
+        with tempfile.TemporaryDirectory() as td:
+            asks = Path(td) / "asks.json"
+            json.dump([{"name": f.stem, "image": f.name} for f in pics], open(asks, "w"))
+            for f in pics:
+                shutil.copy(f, Path(td) / f.name)
+            make("maps", asks, Path(td) / "maps", a.timeout)
+            for f in pics:  # make saves <name>__maps.png (normal) and <name>__maps-1.png (depth)
+                maps = Path(td) / "maps"
+                bumpmaps.finish(f, maps / f"{f.stem}__maps.png", maps / f"{f.stem}__maps-1.png", out, f.stem)
+                print(f"bump: {out / (f.stem + '_normal.png')}")
+    elif a.cmd == "shrink":
+        try:
+            import shrink_glb
+        except ImportError as e:
+            sys.exit(f"imagegen shrink needs Pillow on this computer (pip3 install pillow): {e}")
+        out = Path(a.out).expanduser().resolve(); out.mkdir(parents=True, exist_ok=True)
+        for g in a.glbs:
+            src = Path(g).resolve()
+            print(f"shrink: {out / (src.stem + '-small.glb')} ({shrink_glb.shrink(src, out / (src.stem + '-small.glb')):.2f} MB)")
     elif a.cmd == "preview":
         d = Path(a.dir).resolve()
         glbs = sorted(d.glob("*.glb"))
