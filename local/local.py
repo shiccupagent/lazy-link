@@ -30,7 +30,7 @@ def run(files, want, out, name):
     with tempfile.TemporaryDirectory() as td:
         w = Path(td) / "want.json"
         w.write_text(json.dumps(want))
-        imagegen.send([HERE / "pc_job.py", w] + files, PS1, want, name, out, 7200)
+        imagegen.send([HERE / "pc_job.py", w] + files, PS1, want, name, out, 7200, sh=(HERE / "linux" / "run.sh").read_text())
     return out
 
 
@@ -45,11 +45,10 @@ def main():
     t = sub.add_parser("transcribe"); t.add_argument("files", nargs="+"); t.add_argument("--out", required=True)
     sub.add_parser("setup")
     args = p.parse_args()
-    if imagegen.load_pcjob().LINUX:
-        sys.exit("local.py: not on Linux yet. The local AI runs on the Windows PC only for now.")
     if args.cmd == "setup":
         out = HERE.parent / "reports" / ("local-ai-" + __import__("time").strftime("%Y%m%d-%H%M%S"))
-        imagegen.send([HERE.parent / "imagegen" / "models.json"], (HERE / "setup-local-ai.ps1").read_text(), {}, "local-setup", out, 4 * 3600)
+        imagegen.send([HERE.parent / "imagegen" / "models.json", HERE / "pc_job.py"], (HERE / "setup-local-ai.ps1").read_text(), {},
+                      "local-setup", out, 4 * 3600, sh=(HERE / "linux" / "setup.sh").read_text())
         print((out / "local-ai.json").read_text(encoding="utf-8-sig", errors="replace"))
         return
     if args.cmd == "transcribe":

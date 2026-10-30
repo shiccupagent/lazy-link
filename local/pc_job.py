@@ -1,7 +1,7 @@
 # Runs on the PC (pcjob): local chat model or speech-to-text over a batch. want.json says which.
 #   {"ask": "qwen"|"gptoss", "max_tokens": 800}  asks.jsonl lines {"id", "prompt", "system"?} -> answers.jsonl
 #   {"transcribe": true}                         inputs/* audio/video -> <name>.txt + <name>.srt
-import glob, json, os, subprocess, sys, time, urllib.request
+import ctypes, glob, json, os, subprocess, sys, time, urllib.request
 
 OUT = os.environ["RENDER_OUT"]
 WANT = json.load(open("want.json"))
@@ -9,13 +9,17 @@ ROOT = os.environ["RENDER_ROOT"]
 MODELS = {"qwen": os.path.join(ROOT, "models", "llm", "Qwen3-30B-A3B-Q4_K_M.gguf"),
           "gptoss": os.path.join(ROOT, "models", "llm", "gpt-oss-20b-MXFP4.gguf")}
 PORT = 8191
+WINDOWS = os.name == "nt"
+LLAMA_EXE = "llama-server.exe" if WINDOWS else "llama-server"
 
 
 def ask():
-    exe = glob.glob(os.path.join(ROOT, "tools", "llama", "**", "llama-server.exe"), recursive=True)[0]
+    exe = glob.glob(os.path.join(ROOT, "tools", "llama", "**", LLAMA_EXE), recursive=True)[0]
     log = open(os.path.join(OUT, "llama.log"), "w")
+    # on Linux the llama.cpp archive's shared libraries sit next to llama-server
+    env = os.environ if WINDOWS else dict(os.environ, LD_LIBRARY_PATH=os.path.dirname(exe) + os.pathsep + os.environ.get("LD_LIBRARY_PATH", ""))
     srv = subprocess.Popen([exe, "-m", MODELS[WANT["ask"]], "-ngl", "99", "-c", "16384", "--host", "127.0.0.1", "--port", str(PORT)],
-                           stdout=log, stderr=subprocess.STDOUT)
+                           stdout=log, stderr=subprocess.STDOUT, env=env)
     try:
         for _ in range(240):
             try:
@@ -43,12 +47,36 @@ def ask():
         srv.terminate()
 
 
+def preload_cuda_libs():
+    """Linux: load the pip-installed CUDA libraries (cuBLAS, cuDNN) by full path. The dynamic loader reads
+    LD_LIBRARY_PATH only at start, so setting it here would be too late. A library may need another one
+    first, so keep going while something new loads."""
+    pending = sorted(glob.glob(os.path.join(sys.prefix, "lib", "python*", "site-packages", "nvidia", "*", "lib", "lib*.so*")))
+    progress = True
+    while pending and progress:
+        progress, left = False, []
+        for p in pending:
+            try:
+                ctypes.CDLL(p, mode=ctypes.RTLD_GLOBAL)
+                progress = True
+            except OSError:
+                left.append(p)
+        pending = left
+
+
 def transcribe():
-    for p in glob.glob(os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "*", "bin")):
-        os.add_dll_directory(p)
-        os.environ["PATH"] = p + os.pathsep + os.environ["PATH"]
+    if WINDOWS:
+        for p in glob.glob(os.path.join(sys.prefix, "Lib", "site-packages", "nvidia", "*", "bin")):
+            os.add_dll_directory(p)
+            os.environ["PATH"] = p + os.pathsep + os.environ["PATH"]
+        device, compute = "cuda", "float16"
+    else:
+        preload_cuda_libs()
+        import ctranslate2
+        device, compute = ("cuda", "float16") if ctranslate2.get_cuda_device_count() > 0 else ("cpu", "int8")
+    print(f"whisper on {device} ({compute})", flush=True)
     from faster_whisper import WhisperModel
-    m = WhisperModel(os.path.join(ROOT, "models", "whisper-large-v3"), device="cuda", compute_type="float16")
+    m = WhisperModel(os.path.join(ROOT, "models", "whisper-large-v3"), device=device, compute_type=compute)
     stamp = lambda s: f"{int(s // 3600):02}:{int(s % 3600 // 60):02}:{int(s % 60):02},{int(s * 1000 % 1000):03}"
     for f in sorted(glob.glob("inputs/*")):
         t = time.time()
