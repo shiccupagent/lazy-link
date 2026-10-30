@@ -145,7 +145,7 @@ if [ -n "$key" ]; then
 fi
 
 # ---- 4. sshd: only 'render', key only -------------------------------------------------------------
-step "Sign-in rule: only '$RENDER_USER' may sign in, with a key (other accounts: unchanged)"
+step "Sign-in rule: only '$RENDER_USER' may sign in over SSH, with a key (other accounts lose SSH sign-in; see docs/MAC-PC.md)"
 put "$SSHD_DROPIN" 644 root:wheel <<EOF || die "could not write $SSHD_DROPIN"
 # Lazy Link: only the '$RENDER_USER' account (the job runner) may sign in over SSH, with its key only.
 # sshd_config includes this folder near its top, so these lines are read first and win.
