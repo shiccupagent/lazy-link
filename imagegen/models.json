@@ -307,7 +307,9 @@
     "122",
     "image"
    ],
-   "_doc": "game-ready defaults: 40k faces, 2048 texture (the template's 700k / 4096 is for film); prompt text = the input picture"
+   "_doc": "game-ready defaults: 40k faces, 2048 texture (the template's 700k / 4096 is for film); prompt text = the input picture",
+   "min_vram_gb": 16,
+   "_min_vram_note": "check.py estimate: 3D needs far more working memory than its files; measured only on a 24 GB card"
   }
  }
 }

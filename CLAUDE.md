@@ -3,6 +3,7 @@
 This repo lets you (Claude, on the Mac) run AI jobs on the user's Windows PC GPU. Setup steps: README.md.
 
 ## Commands
+- `./check.py [--setup]`: what the PC has, what to fix, which models fit (only reads the PC).
 - `./imagegen/imagegen.py one "prompt" --out DIR [--model krea2|klein|zimage] [--size WxH] [--cutout]`
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
 - `./imagegen/imagegen.py make audio|sfx|mesh ASKS.json --out DIR`: sounds/music, or picture to 3D.

@@ -34,7 +34,12 @@ a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (r
    that needs admin. Want to see first what it changes? Run `Setup-PC.cmd -DryRun`.
 3. **Mac:** run the line the PC shows at the end, e.g. `./mac/pcjob pair 192.168.1.50`.
    Check that the fingerprint matches the one on the PC's screen and answer `y`.
-4. **Mac:** install the AI tools onto the PC (no admin needed, all into `C:\render`):
+4. **Mac:** see what your PC can run, and what to fix first if it sat unused for months:
+   ```bash
+   ./check.py            # graphics card, memory, disks, updates, wake settings -> which models fit
+   ./check.py --setup    # then install exactly what it recommends
+   ```
+   Or install by hand (no admin needed, all into `C:\render`):
    ```bash
    ./imagegen/imagegen.py setup          # ComfyUI + Python + PyTorch (about 5 GB)
    ./imagegen/imagegen.py sizes          # what each model downloads, and its licence
