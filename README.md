@@ -105,6 +105,7 @@ They need ffmpeg and `pip3 install numpy scipy pillow` on your small computer.
 ./imagegen/imagegen.py make audio imagegen/examples/sounds.json --out out/   # sounds / music
 ./imagegen/imagegen.py make mesh imagegen/examples/mesh.json --out out/      # picture -> 3D (.glb)
 ./imagegen/imagegen.py preview out/                                          # 3D turntable pictures (needs Blender on the PC)
+./imagegen/imagegen.py tile floor.png --out out/                             # seamless copy of a surface picture (no AI; a 2x2 preview shows the seams)
 ./imagegen/imagegen.py bump floor.png --out out/                             # bump maps: a normal map + a height map, so a flat picture looks raised in games and 3D
 ./imagegen/imagegen.py shrink out/red-mug__mesh.glb --out out/               # game-size .glb: 512 px JPEG textures instead of PNG
 ./local/local.py ask-one "Explain Wake-on-LAN in two sentences"
@@ -117,11 +118,11 @@ python3 imagegen/pick_sounds.py out/takes/ --ref liked.wav --dest out/picks/  # 
 python3 imagegen/sheet.py cmp.png asks.json krea2=out/krea2:"Krea 2"         # compare pictures from several models side by side
 python3 imagegen/watch.py                                                    # new open image models worth a test (public Hugging Face pages)
 ```
-`bump` asks the PC's MoGe-2 model for the shapes (the same model as `make mesh`), then does the rest on the Mac.
+`bump` asks the PC's MoGe-2 model for the shapes (the same model as `make mesh`), then does the rest on the Mac. `bump --tile` makes the maps wrap for a seamless picture from `tile`; `bump --object [--plain]` makes a normal map only, for sprites and whole scenes.
 It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pillow` (`shrink` needs only Pillow).
 `audio_check` and `pick_sounds` need ffmpeg (`brew install ffmpeg`) and numpy (`audio_check`) or numpy and scipy (`pick_sounds`);
 `sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
-`bump` and `shrink` are new; the PC step of `bump` has not yet run from this repo.
+`tile`, `bump` (with `--tile` and `--object`) and `shrink` are new; the PC step of `bump` has not yet run from this repo.
 Or just ask your AI agent in this folder: *"make me 10 coin sounds"*. [AGENTS.md](AGENTS.md) tells it how.
 
 ### Copy your own voice (Windows PC)

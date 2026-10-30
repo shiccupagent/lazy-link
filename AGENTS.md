@@ -12,7 +12,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./imagegen/imagegen.py one "prompt" --out DIR [--model krea2|klein|zimage] [--size WxH] [--cutout]`
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
 - `./imagegen/imagegen.py make audio|sfx|mesh|maps ASKS.json --out DIR`: sounds/music, picture to 3D, or picture to normal + depth maps (MoGe-2).
-- `./imagegen/imagegen.py bump PICTURE... --out DIR`: bump maps (`<name>_normal.png` + `_height.png`) from a surface picture; runs `make maps` on the PC, then needs numpy, scipy, Pillow on this computer.
+- `./imagegen/imagegen.py tile PICTURE... --out DIR`: seamless copy of each surface picture (`<name>_tile.png` + a 2x2 preview to check the seams); no AI, needs numpy, scipy, Pillow on this computer.
+- `./imagegen/imagegen.py bump PICTURE... --out DIR [--tile] [--object [--plain]]`: bump maps (`<name>_normal.png` + `_height.png` + `_ao.png`) from a surface picture; runs `make maps` on the PC, then needs numpy, scipy, Pillow on this computer. `--tile` makes the maps wrap for seamless pictures; `--object` gives a normal map only for sprites and whole scenes (`--plain` takes the colour out first).
 - `./imagegen/imagegen.py shrink GLB... --out DIR`: phone-size copies of `make mesh` .glb files (512 px JPEG textures); needs Pillow on this computer.
 - `./imagegen/imagegen.py preview DIR`: turntable pictures of every .glb (needs Blender on the PC).
 - `python3 imagegen/audio_check.py DIR [--frequent a,b] [--fix OUTDIR]`: the never-harsh gate for sounds (brightness and >4 kHz share), writes DIR/soundboard.mp3 to listen to; `--fix` writes game-ready .mp3 copies. Needs numpy and ffmpeg.
