@@ -19,6 +19,7 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `python3 imagegen/watch.py [--mark]`: new open image models on Hugging Face (public API, no key).
 - `./local/local.py ask ASKS.jsonl --out DIR` / `ask-one "..."` / `transcribe FILE... --out DIR`.
 - `./mac/pcjob run DIR --fetch OUT`: any folder with a job.ps1 (PowerShell; write results to $env:RENDER_OUT).
+- `./video/webvideo.py PAGE.html --out DIR [--query "a=1"] [--seconds 6] [--fps 30] [--size 1920x1080]`: animated web page to .mp4 + .png, rendered on the PC (docs/WEB-TO-VIDEO.md).
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap`.
 - Cheap electricity: `--cheap` on `pcjob run`, or `LAZY_CHEAP=1` before any command, holds the job until
   config.json `cheap_hours` (`"cheap_only": true` = every job). Use it for big batches that aren't urgent.

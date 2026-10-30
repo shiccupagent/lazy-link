@@ -72,6 +72,7 @@ The main path above is a **Mac controlling a Windows PC**. Other mixes:
 ./local/local.py ask local/examples-asks.jsonl --out out/
 ./local/local.py transcribe talk.m4a --out out/                              # .txt, .srt, word timings
 ./mac/pcjob run my-job-folder --fetch out/                                   # anything else: a folder with a job.ps1
+./video/webvideo.py video/examples/spin.html --out out/ --seconds 6          # animated web page -> .mp4 + .png (docs/WEB-TO-VIDEO.md)
 python3 imagegen/audio_check.py out/sounds/ --fix out/game/                 # is a sound harsh? soundboard to listen to; --fix writes game-ready copies
 python3 imagegen/pick_sounds.py out/takes/ --ref liked.wav --dest out/picks/  # keep the best takes that sound like your reference clips
 python3 imagegen/sheet.py cmp.png asks.json krea2=out/krea2:"Krea 2"         # compare pictures from several models side by side

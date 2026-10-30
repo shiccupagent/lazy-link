@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spin example</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #101820; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+// The web-to-video contract (docs/WEB-TO-VIDEO.md):
+//  - renderAt(t) draws the frame at t seconds. Use t only: no Date.now(), performance.now(),
+//    requestAnimationFrame or timers for motion, because frames are drawn one at a time.
+//  - sceneReady resolves once everything the page loads has loaded. This page loads nothing, so it is ready at once.
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = innerWidth;    // the renderer makes the viewport the exact frame size, with scale 1
+canvas.height = innerHeight;
+
+window.renderAt = (t) => {
+  const W = canvas.width, H = canvas.height;
+  // background: a gradient whose colours drift with time
+  const hue = (t * 30) % 360;
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, `hsl(${hue} 60% 22%)`);
+  g.addColorStop(1, `hsl(${(hue + 120) % 360} 60% 14%)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // a square that turns once every 2 seconds (pi radians per second) and breathes in size
+  const s = Math.min(W, H) * (0.22 + 0.04 * Math.sin(t * Math.PI));
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(t * Math.PI);
+  ctx.fillStyle = `hsl(${(hue + 180) % 360} 85% 62%)`;
+  ctx.fillRect(-s / 2, -s / 2, s, s);
+  ctx.restore();
+  // a clock, so you can check the timing frame by frame
+  ctx.fillStyle = '#fff';
+  ctx.font = `${Math.round(H * 0.05)}px Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`t = ${t.toFixed(2)} s`, W / 2, H * 0.92);
+  return true;
+};
+window.sceneReady = Promise.resolve(true);
+</script>
+</body>
+</html>
