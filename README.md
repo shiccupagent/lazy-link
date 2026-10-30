@@ -81,6 +81,12 @@ extra image or answer is quick. One job with 50 asks beats 50 jobs with one.
 Every file comes from the maker's official repository (or ComfyUI's official repack) and is checked
 against its size and sha256 before use. This repo's own code is MIT.
 
+## Support this project
+
+render-link is free and stays free (MIT). If it saves you money or time, you can chip in through
+[GitHub Sponsors](https://github.com/sponsors/shiccupagent), once or monthly, any amount.
+Personal sponsorships go 100% to the project. Thank you!
+
 ## More
 - [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md): why each piece is built the way it is.
 - [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): the gotchas we hit, and their fixes.
