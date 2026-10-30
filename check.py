@@ -5,8 +5,9 @@ after months or years switched off, then say which AI models it can run and the 
   ./check.py              the report, plus what to install
   ./check.py --setup      the report, then install what it recommends
   ./check.py --from FILE  the report from an earlier check.json (no PC needed)
+  ./check.py --tidy       sizes of what can be cleaned on the PC; asks before deleting Lazy Link's own files (--yes skips the question)
 
-It only reads: nothing on the PC is changed or deleted. Fixes that need you (Windows Update, the graphics
+It only reads, except --tidy, which deletes nothing without your yes. Fixes that need you (Windows Update, the graphics
 driver, BIOS settings) are listed in plain words.
 """
 import argparse, json, os, shlex, shutil, subprocess, sys, time
@@ -177,12 +178,109 @@ def report(c):
     return p
 
 
+def fmt_bytes(n):
+    n = int(n or 0)
+    if n >= GB:
+        return f"{n / GB:.1f} GB"
+    if n >= 1e6:
+        return f"{n / 1e6:.0f} MB"
+    if n >= 1e3:
+        return f"{n / 1e3:.0f} KB"
+    return f"{n} B"
+
+
+def tidy_report(t):
+    """Print the tidy-up table from tidy.json. Returns the ids Lazy Link can clean (with something to clean)."""
+    print("\nTidy-up (sizes only; nothing is deleted by looking)")
+    print(f"  {'Size':<16}{'What':<52}Who can clean it")
+    cleanable = []
+    for c in t.get("categories", []):
+        b = c.get("bytes", 0)
+        if not c.get("exists"):
+            size, who = "none", ""
+        elif not c.get("readable", True):
+            size, who = "-", f"not visible to the Lazy Link account. You can clean it: {c.get('how', '')}"
+        else:
+            size = ("at least " if c.get("partial") else "") + fmt_bytes(b)
+            if c.get("action") == "lazy":
+                who = "Lazy Link can clean this"
+                if b > 0:
+                    cleanable.append(c)
+            else:
+                who = f"you can clean this: {c.get('how', '')}"
+        print(f"  {size:<16}{c['label']:<52}{who}")
+    if cleanable:
+        print(f"\nLazy Link can clean {len(cleanable)} item(s), {fmt_bytes(sum(c['bytes'] for c in cleanable))}.")
+    else:
+        print("\nNothing here for Lazy Link to clean.")
+    print("Everything else: Settings > System > Storage > Cleanup recommendations, or run cleanmgr /sageset once, then cleanmgr.")
+    return [c["id"] for c in cleanable]
+
+
+def freed_report(t):
+    done = [c for c in t.get("categories", []) if c.get("freed", 0) > 0]
+    print("\nFreed:")
+    for c in done:
+        print(f"  {fmt_bytes(c['freed']):<10}{c['label']}")
+    if not done:
+        print("  nothing (the items were already empty)")
+    print(f"\nTotal freed: {fmt_bytes(t.get('freed_bytes', 0))}.")
+    for c in t.get("categories", []):
+        if "before" in c and c.get("bytes", 0) > 0:   # only the items this clean touched
+            print(f"  still there: {fmt_bytes(c['bytes'])} in {c['label']} (in use, or newer than an hour)")
+    if t.get("error"):
+        print(f"  note: {t['error']}")
+
+
+def tidy(a):
+    if imagegen.load_pcjob().LINUX:
+        sys.exit("./check.py --tidy works on the Windows PC for now.")
+    script = (HERE / "pc" / "tidy.ps1").read_text(encoding="utf-8")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    if a.src:
+        t = json.loads(Path(a.src).read_text(encoding="utf-8-sig"))
+        print("(from a saved file: nothing sent to the PC)")
+    else:
+        out = HERE / "reports" / ("tidy-" + stamp)
+        imagegen.send([], script, {"mode": "scan"}, "tidy-scan", out, 600)
+        t = json.loads((out / "tidy.json").read_text(encoding="utf-8-sig"))
+        print(f"(saved in {out / 'tidy.json'})")
+    todo = tidy_report(t)
+    if a.src or not todo:
+        return
+    total = sum(c["bytes"] for c in t["categories"] if c["id"] in todo)
+    if a.yes:
+        go = True
+    elif not sys.stdin.isatty():
+        print("\n(not a terminal, so nothing is cleaned. Add --yes to clean without the question.)")
+        return
+    else:
+        try:
+            go = input(f"\nClean the {len(todo)} items Lazy Link can clean ({fmt_bytes(total)})? [y/N] ").strip().lower() in ("y", "yes")
+        except EOFError:
+            go = False
+    if not go:
+        print("Nothing cleaned.")
+        return
+    out = HERE / "reports" / ("tidy-clean-" + stamp)
+    imagegen.send([], script, {"mode": "clean", "categories": todo}, "tidy-clean", out, 600)
+    freed_report(json.loads((out / "tidy.json").read_text(encoding="utf-8-sig")))
+
+
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # ✔/✘ marks; Windows pipes default to cp1252
     ap = argparse.ArgumentParser(prog="check", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--setup", action="store_true", help="install what the report recommends")
-    ap.add_argument("--from", dest="src", help="an earlier check.json")
+    ap.add_argument("--tidy", action="store_true", help="sizes of what can be cleaned; asks before deleting Lazy Link's files")
+    ap.add_argument("--yes", action="store_true", help="with --tidy: clean without asking (for scripts)")
+    ap.add_argument("--from", dest="src", help="an earlier check.json (or tidy.json with --tidy)")
     a = ap.parse_args()
+    if a.setup and a.tidy:
+        sys.exit("use --setup or --tidy, not both")
+    if a.yes and not a.tidy:
+        sys.exit("--yes goes with --tidy")
+    if a.tidy:
+        return tidy(a)
     if a.src:
         c = json.loads(Path(a.src).read_text(encoding="utf-8-sig"))
     else:
