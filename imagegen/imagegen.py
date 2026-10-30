@@ -32,7 +32,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 MODELS = json.load(open(HERE / "models.json"))
-DEFAULT = "krea2"   # best of the three in our side-by-side tests (see docs/HOW-IT-WORKS.md)
+DEFAULT = MODELS["defaults"]["picture"]   # krea2: best of the three in our side-by-side tests (see docs/HOW-IT-WORKS.md)
 
 RUN_PS1 = r"""$ErrorActionPreference = 'Stop'
 $py = Join-Path $env:RENDER_ROOT ((Get-Content models.json -Raw | ConvertFrom-Json).comfy.venv + '\Scripts\python.exe')

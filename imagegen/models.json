@@ -38,7 +38,9 @@
  ],
  "cutout": {
   "_doc": "asks with \"cutout\": true also get <name>__<model>-cutout.png (transparent background); BiRefNet, MIT licence",
-  "model": "birefnet.safetensors"
+  "model": "birefnet.safetensors",
+  "version": 1,
+  "licence": "MIT: any commercial use (ZhengPeng7/BiRefNet; ComfyUI repack Comfy-Org/BiRefNet)"
  },
  "files": {
   "z_image_turbo_bf16.safetensors": {
@@ -156,8 +158,10 @@
    "url": "https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/text_encoders/t5gemma_b_b_ul2.safetensors"
   }
  },
+ "defaults": {"picture": "krea2", "_doc": "the picture model imagegen.py uses when none is named. Bump a model's or recipe's \"version\" whenever its settings or files change, so anything made with the old one can be found and re-made."},
  "models": {
   "zimage": {
+   "version": 1,
    "label": "Z-Image Turbo (6B)",
    "licence": "Apache-2.0: free for any commercial use",
    "unet": "z_image_turbo_bf16.safetensors",
@@ -173,6 +177,7 @@
    "scheduler": "simple"
   },
   "klein": {
+   "version": 1,
    "label": "FLUX.2 klein 4B",
    "licence": "Apache-2.0: free for any commercial use",
    "unet": "flux-2-klein-4b.safetensors",
@@ -186,6 +191,7 @@
    "sampler": "euler"
   },
   "krea2": {
+   "version": 1,
    "label": "Krea 2 Turbo",
    "licence": "Krea 2 Community: commercial use free while total yearly revenue < $1M",
    "unet": "krea2_turbo_fp8_scaled.safetensors",
@@ -200,6 +206,7 @@
    "scheduler": "simple"
   },
   "krea2raw": {
+   "version": 1,
    "label": "Krea 2 Raw",
    "licence": "Krea 2 Community: commercial use free while total yearly revenue < $1M",
    "_doc": "undistilled base, meant for training LoRAs (Krea: train on Raw, run on Turbo); 52 steps, cfg 3.5 per krea-ai/krea-2 README",
@@ -219,6 +226,7 @@
  "recipes": {
   "_doc": "converted ComfyUI templates (recipes/<template>.api.json, made by `imagegen.py convert`; the exception is moge_maps, hand-written: see its _doc); params map a short name to [node id, input]; fixed = always set",
   "sfx": {
+   "version": 1,
    "label": "Stable Audio 3 small SFX",
    "licence": "Stability AI Community: free while yearly revenue < $1M",
    "template": "audio_stable_audio_3_medium",
@@ -250,6 +258,7 @@
    }
   },
   "audio": {
+   "version": 1,
    "label": "Stable Audio 3 medium",
    "licence": "Stability AI Community: free while yearly revenue < $1M",
    "template": "audio_stable_audio_3_medium",
@@ -281,6 +290,7 @@
    }
   },
   "mesh": {
+   "version": 1,
    "label": "Pixal3D + TRELLIS.2 (image to textured 3D model)",
    "licence": "MIT: any commercial use",
    "template": "3d_pixal3d_trellis2_image_to_model",
@@ -321,6 +331,7 @@
    "_min_vram_note": "check.py estimate: 3D needs far more working memory than its files; measured only on a 24 GB card"
   },
   "maps": {
+   "version": 2,
    "label": "MoGe-2 (picture to normal map + depth)",
    "licence": "MIT: any commercial use (the model the mesh recipe already ships)",
    "template": "moge_maps",
