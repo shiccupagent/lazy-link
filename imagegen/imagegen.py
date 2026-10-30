@@ -10,7 +10,9 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
   imagegen.py fetch [--models krea2] [--recipes audio,mesh]   download missing model files (official repos, sha256-checked)
   imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh) or maps (normal + depth) from a recipe
   imagegen.py tile PICTURE... --out DIR      seamless copy of each surface picture, on this computer, no AI (tiles.py)
-  imagegen.py bump PICTURE... --out DIR      bump maps for surface pictures: DIR/<name>_normal.png + _height.png (runs make maps)
+  imagegen.py bump PICTURE... --out DIR [--tile]   bump maps for surface pictures: DIR/<name>_normal/_height/_ao.png (runs make maps);
+                                             --tile for seamless pictures (the maps wrap too)
+                                             --object [--plain] for sprites and whole scenes: DIR/<name>_normal.png only
   imagegen.py shrink GLB... --out DIR        phone-size copies of .glb files: DIR/<name>-small.glb (512 px JPEG textures)
   imagegen.py preview DIR                    four turntable renders of every .glb in DIR (Blender on the PC) -> DIR/preview/
   imagegen.py convert TEMPLATE ...           ComfyUI template -> recipes/TEMPLATE.api.json (generated; rerun, never hand-edit)
@@ -137,8 +139,11 @@ def main():
     mk.add_argument("asks"); mk.add_argument("--out", required=True); mk.add_argument("--timeout", type=int, default=3600)
     cv = sub.add_parser("convert"); cv.add_argument("templates", nargs="+")
     pv = sub.add_parser("preview"); pv.add_argument("dir")
-    bp = sub.add_parser("bump", help="bump maps (normal + height) for surface pictures; needs numpy, scipy, Pillow here")
+    bp = sub.add_parser("bump", help="bump maps (normal, height, AO) for surface pictures or objects; needs numpy, scipy, Pillow here")
     bp.add_argument("pictures", nargs="+"); bp.add_argument("--out", required=True); bp.add_argument("--timeout", type=int, default=1800)
+    bp.add_argument("--tile", action="store_true", help="the pictures are seamless: make maps that wrap too")
+    bp.add_argument("--object", action="store_true", help="objects or whole scenes (sprites, paintings): keep the whole shape; normal only")
+    bp.add_argument("--plain", action="store_true", help="with --object: take the colours out first, so paint colour reads as no shape")
     tl = sub.add_parser("tile", help="seamless copies of surface pictures (tiles.py); needs numpy, scipy and Pillow here")
     tl.add_argument("pictures", nargs="+"); tl.add_argument("--out", required=True)
     tl.add_argument("--overlap", type=float, help="share laid over itself to find the cut (tiles.OVERLAP)")
@@ -167,23 +172,44 @@ def main():
             print(f"tile: {dst}  edges jump {before:.1f}x an ordinary step before, {after:.1f}x after")
     elif a.cmd == "bump":
         try:
-            import bumpmaps
+            import bumpmaps, tiles
         except ImportError as e:
             sys.exit(f"imagegen bump needs numpy, scipy and Pillow on this computer (pip3 install numpy scipy pillow): {e}")
         out = Path(a.out).expanduser().resolve(); out.mkdir(parents=True, exist_ok=True)
         pics = [Path(x).resolve() for x in a.pictures]
         if len({f.stem for f in pics}) != len(pics):
             sys.exit("imagegen bump: two pictures have the same name (file name without extension); rename one")
+        if a.tile and a.object:
+            sys.exit("imagegen bump: --tile is for surfaces, --object for objects; pick one")
         with tempfile.TemporaryDirectory() as td:
             asks = Path(td) / "asks.json"
-            json.dump([{"name": f.stem, "image": f.name} for f in pics], open(asks, "w"))
+            names = []   # (name in asks.json, file in the job folder)
             for f in pics:
+                if a.object:   # scaled up if small, on mid grey, maybe without colour: what MoGe reads
+                    bumpmaps.prep_object(f, Path(td) / f"{f.stem}.png", a.plain)
+                    names.append((f.stem, f"{f.stem}.png"))
+                    continue
                 shutil.copy(f, Path(td) / f.name)
+                names.append((f.stem, f.name))
+                if a.tile:   # also the picture moved by half across, down and both, so the maps can wrap
+                    for key, (sy, sx) in bumpmaps.SHIFTS.items():
+                        if key:
+                            tiles.save(bumpmaps.shifted(tiles.load(f), sy, sx), Path(td) / f"{f.stem}{key}.png")
+                            names.append((f"{f.stem}{key}", f"{f.stem}{key}.png"))
+            asks.write_text(json.dumps([{"name": n, "image": i} for n, i in names]))
             make("maps", asks, Path(td) / "maps", a.timeout)
-            for f in pics:  # make saves <name>__maps.png (normal) and <name>__maps-1.png (depth)
-                maps = Path(td) / "maps"
-                bumpmaps.finish(f, maps / f"{f.stem}__maps.png", maps / f"{f.stem}__maps-1.png", out, f.stem)
-                print(f"bump: {out / (f.stem + '_normal.png')}")
+            m = Path(td) / "maps"   # make saves <name>__maps.png (normal) and <name>__maps-1.png (depth)
+            for f in pics:
+                own = (m / f"{f.stem}__maps.png", m / f"{f.stem}__maps-1.png")
+                if a.object:
+                    bumpmaps.finish_object(f, Path(td) / f"{f.stem}.png", own[0], out, f.stem)
+                    print(f"bump: {out / (f.stem + '_normal.png')}")
+                    continue
+                if a.tile:
+                    bumpmaps.finish_tiled(f, {k: (m / f"{f.stem}{k}__maps.png", m / f"{f.stem}{k}__maps-1.png") for k in bumpmaps.SHIFTS}, out, f.stem)
+                else:
+                    bumpmaps.finish(f, *own, out, f.stem)
+                print(f"bump: {out / (f.stem + '_normal.png')} (+ _height, _ao)")
     elif a.cmd == "shrink":
         try:
             import shrink_glb
