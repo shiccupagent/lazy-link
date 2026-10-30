@@ -10,7 +10,7 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
   imagegen.py fetch [--models krea2] [--recipes audio,mesh]   download missing model files (official repos, sha256-checked)
   imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh) or maps (normal + depth) from a recipe
   imagegen.py tile PICTURE... --out DIR      seamless copy of each surface picture, on this computer, no AI (tiles.py)
-  imagegen.py pbr PICTURE... --out DIR [--material NAME] [--rough R] [--rough-var V] [--metal 0|1|edges] [--tile]
+  imagegen.py pbr PICTURE... --out DIR [--material NAME] [--rough R] [--rough-var V] [--detail D] [--metal 0|1|edges] [--tile]
                                              roughness, metal and ORM maps from surface pictures, on this computer, no AI (pbr.py)
   imagegen.py bump PICTURE... --out DIR [--tile] [--slope 0.35]   bump maps for surface pictures: DIR/<name>_normal/_height/_ao.png (runs make maps);
                                              prints each normal map's mean slope, warns under 0.15; --slope steepens flat ones
@@ -162,6 +162,7 @@ def main():
     pb.add_argument("--material", help="a preset from imagegen/pbr_materials.json, e.g. wood_lacquer")
     pb.add_argument("--rough", type=float, help="base roughness 0-1; overrides the preset, and alone needs no --material")
     pb.add_argument("--rough-var", type=float, help="how much cavities and albedo detail add on top; overrides the preset")
+    pb.add_argument("--detail", type=float, help="roughness the albedo's fine marks add, -1 to 1; negative = lighter marks are rougher (ice); overrides the preset")
     pb.add_argument("--metal", choices=["0", "1", "edges"], help="0, 1, or edges (worn ridges); overrides the preset")
     pb.add_argument("--tile", action="store_true", help="the pictures are seamless: the maps wrap too")
     pb.add_argument("--model", default="heuristic", help="roughness maker; only heuristic for now")
@@ -239,7 +240,7 @@ def main():
         try:   # all checks before anything is written
             pbr.check_model(a.model)
             metal = None if a.metal is None else (a.metal if a.metal == "edges" else int(a.metal))
-            vals, preset_version = pbr.resolve(a.material, a.rough, a.rough_var, metal)
+            vals, preset_version = pbr.resolve(a.material, a.rough, a.rough_var, metal, a.detail)
         except ValueError as e:
             sys.exit(f"imagegen pbr: {e}")
         pics = [Path(x).resolve() for x in a.pictures]

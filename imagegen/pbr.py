@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """pbr.py - roughness and metal maps (plus one packed ORM) from a surface picture, `imagegen.py pbr`. Mac only, no AI:
 numpy and Pillow, nothing else (the blurs are written out here, no scipy).
-  make_roughness()  base + var x (cavities + a little albedo detail), kept in [0.04, 1]. The one function a model-made
+  make_roughness()  base + var x cavities + detail x albedo detail, kept in [0.04, 1]. The one function a model-made
                     roughness would replace; metal, AO, the ORM packing and the sidecar stay the same.
   make_metal()      0 or 1 everywhere, or "edges": worn ridges from the height map's curvature (not its cavities).
   pack_orm()        R = ambient occlusion (white when there is none), G = roughness, B = metal.
@@ -28,7 +28,9 @@ CAVITY_STRENGTH = 1.6    # same as bumpmaps.AO_STRENGTH, so a cavity here is as 
 CAVITY_RADII = (6, 24)   # px: the same two radii as bumpmaps' AO; the wide one counts half
 DETAIL_RADIUS = 6        # px: albedo detail is luminance minus its blur
 DETAIL_GAIN = 4.0        # a luminance step of 1/4 counts as full detail
-DETAIL_WEIGHT = 0.5      # albedo detail moves roughness half as much as a cavity; darker than its blur = rougher
+DETAIL_WEIGHT = 0.5      # default detail = var x this: albedo detail moves roughness half as much as a cavity, darker
+                         # than its blur = rougher. A preset's own "detail" (roughness units, signed) replaces it:
+                         # negative = LIGHTER marks are rougher (scratches on ice are whiter than the ice around them)
 EDGE_RADIUS = 2.0        # px: blur before the curvature, so pixel noise is not a worn edge
 EDGE_LO, EDGE_HI = 0.4, 0.7   # curvature (share of the strongest) where worn-edge metal starts, and where it is full
 
@@ -80,7 +82,7 @@ def cavity_from_height(height, wrap):
     return np.clip(CAVITY_STRENGTH * dip, 0, 1)
 
 
-def heuristic_roughness(rgb, height, ao, base, var, wrap):
+def heuristic_roughness(rgb, height, ao, base, var, wrap, detail_amount=None):
     if ao is not None:
         cavity = np.clip(1 - ao, 0, 1)            # darker AO = deeper cavity
     elif height is not None:
@@ -90,7 +92,9 @@ def heuristic_roughness(rgb, height, ao, base, var, wrap):
     lum = rgb @ LUMA
     # only the part that differs from its blur: a dark but even albedo has none, so it does not read rough
     detail = np.clip(-(lum - blur(lum, DETAIL_RADIUS, wrap)) * DETAIL_GAIN, -1, 1)
-    return np.clip(base + var * (cavity + DETAIL_WEIGHT * detail), ROUGH_MIN, 1)
+    if detail_amount is None:
+        detail_amount = var * DETAIL_WEIGHT
+    return np.clip(base + var * cavity + detail_amount * detail, ROUGH_MIN, 1)
 
 
 def check_model(model):
@@ -98,10 +102,10 @@ def check_model(model):
         raise ValueError(MODEL_REJECT)
 
 
-def make_roughness(model, rgb, height, ao, base, var, wrap=False):
+def make_roughness(model, rgb, height, ao, base, var, wrap=False, detail_amount=None):
     """Roughness, float 0-1, same shape as the picture. The one place a model-made roughness would plug in."""
     check_model(model)
-    return heuristic_roughness(rgb, height, ao, base, var, wrap)
+    return heuristic_roughness(rgb, height, ao, base, var, wrap, detail_amount)
 
 
 def make_metal(mode, height, shape, wrap):
@@ -127,7 +131,9 @@ def pack_orm(ao_u8, rough_u8, metal_u8):
     return np.dstack([r, rough_u8, metal_u8])
 
 
-def check_values(where, rough, var, metal):
+def check_values(where, rough, var, metal, detail=None):
+    if detail is not None and not (-1 <= detail <= 1):
+        raise ValueError(f"{where}: detail must be -1 to 1, got {detail}")
     if not (0 <= rough <= 1):
         raise ValueError(f"{where}: rough must be 0 to 1, got {rough}")
     if var < 0:
@@ -140,28 +146,31 @@ def load_presets(path=PRESETS):
     """(file version, {name: preset}). Every value is checked here, so a typo fails before any map is made."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     for name, p in data["presets"].items():
-        check_values(f"preset {name}", p["rough"], p["var"], p["metal"])
+        check_values(f"preset {name}", p["rough"], p["var"], p["metal"], p.get("detail"))
     return data.get("version"), data["presets"]
 
 
-def resolve(material=None, rough=None, rough_var=None, metal=None):
-    """(values used, preset version or None). The preset gives the base; any value given on the command line wins."""
+def resolve(material=None, rough=None, rough_var=None, metal=None, detail=None):
+    """(values used, preset version or None). The preset gives the base; any value given on the command line wins.
+    "detail" is in the values only when a preset or the command line sets it (else var x DETAIL_WEIGHT)."""
     if material is not None:
         _, presets = load_presets()
         if material not in presets:
             raise ValueError(f"no preset {material!r}; known: {', '.join(sorted(presets))}")
         p = presets[material]
         vals = {"rough": p["rough"], "var": p["var"], "metal": p["metal"]}
+        if "detail" in p:
+            vals["detail"] = p["detail"]
         preset_version = p.get("version")
     else:
         if rough is None:
             raise ValueError("pick a --material (names in imagegen/pbr_materials.json) or give --rough R")
         vals = {"rough": rough, "var": DEFAULT_VAR, "metal": 0}
         preset_version = None
-    for key, value in (("rough", rough), ("var", rough_var), ("metal", metal)):
+    for key, value in (("rough", rough), ("var", rough_var), ("metal", metal), ("detail", detail)):
         if value is not None:
             vals[key] = value
-    check_values("settings", vals["rough"], vals["var"], vals["metal"])
+    check_values("settings", vals["rough"], vals["var"], vals["metal"], vals.get("detail"))
     return vals, preset_version
 
 
@@ -178,18 +187,12 @@ def load_gray(path, shape, notes):
 
 
 def companions(picture):
-    """(height file, AO file), each or None, beside the picture. For <name>_tile.png the <name>_tile_height form comes
-    first (bump of the tiled picture), then <name>_height (bump of the untiled one)."""
-    stems = [picture.stem]
-    if picture.stem.endswith("_tile") and len(picture.stem) > 5:
-        stems.append(picture.stem[:-5])
-
+    """(height file, AO file), each or None, beside the picture: <stem>_height.png and <stem>_ao.png only. A tiled
+    picture (<name>_tile.png) never borrows the untiled <name>_height: tile cuts and resizes the picture, so those maps
+    no longer line up with it (run bump --tile on the tiled picture)."""
     def find(kind):
-        for s in stems:
-            q = picture.with_name(f"{s}_{kind}.png")
-            if q.exists():
-                return q
-        return None
+        q = picture.with_name(f"{picture.stem}_{kind}.png")
+        return q if q.exists() else None
     return find("height"), find("ao")
 
 
@@ -205,7 +208,8 @@ def make_pbr(picture, out_dir, vals, tile, material=None, preset_version=None, m
     hp, ap = companions(picture)
     height = load_gray(hp, shape, notes) if hp else None
     ao = load_gray(ap, shape, notes) if ap else None
-    rough = make_roughness(model, rgb, height, ao, vals["rough"], vals["var"], tile)
+    detail = vals.get("detail", vals["var"] * DETAIL_WEIGHT)
+    rough = make_roughness(model, rgb, height, ao, vals["rough"], vals["var"], tile, detail)
     metal, note = make_metal(vals["metal"], height, shape, tile)
     if note:
         notes.append(note)
@@ -218,7 +222,7 @@ def make_pbr(picture, out_dir, vals, tile, material=None, preset_version=None, m
     Image.fromarray(pack_orm(ao_u8, rough_u8, metal_u8)).save(out_dir / f"{stem}_orm.png")
     side = {
         "material": material,
-        "params": {"rough": vals["rough"], "rough_var": vals["var"], "metal": vals["metal"], "tile": tile},
+        "params": {"rough": vals["rough"], "rough_var": vals["var"], "detail": round(detail, 4), "metal": vals["metal"], "tile": tile},
         "preset_version": preset_version,
         "tool_version": PBR_VERSION,
         "source": model,

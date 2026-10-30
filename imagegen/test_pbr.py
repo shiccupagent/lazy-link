@@ -151,7 +151,7 @@ class TileMode(unittest.TestCase):
 class Presets(unittest.TestCase):
     def test_presets_load(self):
         version, presets = pbr.load_presets()
-        self.assertEqual(version, 1)
+        self.assertEqual(version, 2)
         self.assertEqual(len(presets), 18)
         self.assertEqual(presets["steel_painted"]["metal"], "edges")
         self.assertEqual(presets["chrome"]["metal"], 1)
@@ -205,11 +205,27 @@ class Companions(unittest.TestCase):
         self.assertEqual(hp, self.d / "x_tile_height.png")
         self.assertIsNone(ap)
 
-    def test_tile_name_falls_back_to_plain_companions(self):
+    def test_tile_name_never_borrows_untiled_companions(self):
+        # tile cuts and resizes the picture, so the untiled picture's maps no longer line up with it
         self.touch("x_tile.png", "x_height.png", "x_ao.png")
-        hp, ap = pbr.companions(self.d / "x_tile.png")
-        self.assertEqual(hp, self.d / "x_height.png")
-        self.assertEqual(ap, self.d / "x_ao.png")
+        self.assertEqual(pbr.companions(self.d / "x_tile.png"), (None, None))
+
+    def test_negative_detail_makes_lighter_marks_rougher(self):
+        rgb = np.full((64, 64, 3), 0.8)
+        rgb[30:34, :] = 0.95                       # a light scratch across flat ice
+        pos = pbr.heuristic_roughness(rgb, None, None, 0.08, 0.05, wrap=True)
+        neg = pbr.heuristic_roughness(rgb, None, None, 0.08, 0.05, wrap=True, detail_amount=-0.7)
+        self.assertLess(pos[32].mean(), 0.08)      # default: lighter reads smoother
+        self.assertGreater(neg[32].mean(), 0.2)    # ice: the scratch reads rough
+        self.assertAlmostEqual(neg[5].mean(), 0.08, places=2)   # open ice stays at the base
+
+    def test_ice_preset_and_command_line_detail(self):
+        vals, ver = pbr.resolve("ice")
+        self.assertEqual((vals["detail"], ver), (-0.7, 2))
+        vals, _ = pbr.resolve("ice", detail=-0.3)
+        self.assertEqual(vals["detail"], -0.3)
+        with self.assertRaises(ValueError):
+            pbr.resolve(None, rough=0.3, detail=2)
 
     def test_no_companions(self):
         self.touch("x.png")

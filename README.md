@@ -126,6 +126,7 @@ It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pill
 `sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
 `tile`, `bump` (with `--tile` and `--object`) and `shrink` are new; the PC step of `bump` has not yet run from this repo.
 `pbr` (new) makes roughness and metal maps and one packed ORM (R = ambient occlusion, G = roughness, B = metal) from a surface picture; it uses `<name>_height.png` and `<name>_ao.png` beside the picture when they exist, and `--tile` wraps the maps for seamless pictures. Load the outputs in three.js with NoColorSpace. It needs numpy and Pillow only.
+Fine marks in the picture make it rougher where they are darker; `--detail` (or a preset's `detail`) sets how much, and a negative value makes lighter marks rougher instead (the `ice` preset: whiter skate scratches). A tiled picture needs its own `bump --tile` maps (`<name>_tile_height.png`); the untiled ones don't line up.
 Every `<name>_pbr.json` says `"source": "heuristic"`, and `--model` accepts only `heuristic` for now (a model-made roughness comes in v2 on the PC).
 Or just ask your AI agent in this folder: *"make me 10 coin sounds"*. [AGENTS.md](AGENTS.md) tells it how.
 
