@@ -556,7 +556,8 @@ def cmd_run(a):
         if a.fetch:
             cmd_fetch(argparse.Namespace(id=job_id, dest=a.fetch))
         if st["state"] != "done":
-            sys.exit(1)
+            sys.exit(f"pcjob: {job_id} {st['state']}" + (f": {st['error'].strip()}" if st.get("error") else "")
+                     + (f"; its logs (_log.txt, _err.txt) are in {a.fetch}" if a.fetch else ""))
     return job_id
 
 

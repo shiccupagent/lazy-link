@@ -85,7 +85,13 @@ function Set-Status($dir, $st) {
     $st.updated = Get-Date -Format o
     $tmp = Join-Path $dir 'status.tmp'
     $st | ConvertTo-Json | Set-Content $tmp
-    Move-Item $tmp (Join-Path $dir 'status.json') -Force
+    # The Mac reads status.json at any moment (pcjob wait/status/list). While a reader has it open, Windows only
+    # marks the old file for deletion, and the move fails with "Cannot create a file when that file already
+    # exists"; that once failed a job that never started. The reader lets go within milliseconds: retry.
+    for ($i = 0; ; $i++) {
+        try { Move-Item $tmp (Join-Path $dir 'status.json') -Force -ErrorAction Stop; return }
+        catch { if ($i -ge 50) { throw }; Start-Sleep -Milliseconds 100 }
+    }
 }
 function Invoke-Job($dir) {
     $id = Split-Path $dir -Leaf
