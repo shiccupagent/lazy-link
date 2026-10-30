@@ -1,5 +1,5 @@
 # job.ps1 for `imagegen.py setup`: our own ComfyUI at the release pinned in models.json, in the PC's
-# work folder (tools\ComfyUI + tools\comfy-venv). Runs as the standard 'render' account: no admin.
+# work folder (tools\ComfyUI + tools\comfy-venv). Runs as the standard 'lazylink' account: no admin.
 # Python comes from uv (no installer, no admin). Models are read from models\comfy plus any extra
 # folders in the Mac's config.json (extra_model_folders), through ComfyUI's extra_model_paths.yaml.
 # Safe to rerun: an existing install moves to the pinned release, packages are only added.

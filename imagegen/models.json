@@ -1,5 +1,5 @@
 {
- "_doc": "The one list of models, files, licences and settings. Paths are inside the PC's work folder (C:/render by default). Sampler settings come from ComfyUI's own templates. `imagegen.py fetch` downloads only from the official repos listed here and checks size + sha256 before a file is used.",
+ "_doc": "The one list of models, files, licences and settings. Paths are inside the PC's work folder (C:/lazylink by default). Sampler settings come from ComfyUI's own templates. `imagegen.py fetch` downloads only from the official repos listed here and checks size + sha256 before a file is used.",
  "comfy": {
   "_doc": "our own pinned ComfyUI, installed by `imagegen.py setup` into tools/ (any ComfyUI you already have is never touched)",
   "version": "v0.43.0",

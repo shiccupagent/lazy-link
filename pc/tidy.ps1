@@ -1,5 +1,5 @@
 # tidy.ps1 - job for `./check.py --tidy`: how much room old files take on this PC, and (mode clean) the
-# parts Lazy Link owns. Runs as the hidden 'render' account (no admin), so it can't see other users'
+# parts Lazy Link owns. Runs as the hidden 'lazylink' account (no admin), so it can't see other users'
 # folders or Windows' own cleanup: those are reported as sizes, or as "not visible", and the owner cleans
 # them. Nothing under Documents, Desktop, Downloads, Pictures, Videos, Music, another profile or a game
 # folder is listed or touched. Writes $env:RENDER_OUT\tidy.json: labels and sizes only, never file names.

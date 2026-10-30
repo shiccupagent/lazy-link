@@ -1,5 +1,5 @@
 # job.ps1 for `local.py setup`: llama.cpp (CUDA) + two open chat models, and faster-whisper speech-to-text.
-# Runs as a pcjob under render (no admin), everything under the PC's work folder. Rerun-safe: a finished step is skipped.
+# Runs as a pcjob under lazylink (no admin), everything under the PC's work folder. Rerun-safe: a finished step is skipped.
 # Downloads: llama.cpp 0.7 GB, gpt-oss-20b 12.1 GB, Qwen3-30B-A3B 18.6 GB, Whisper large-v3 3.1 GB (all MIT / Apache-2.0).
 # Each step is in its own try/catch and lands in $env:RENDER_OUT\local-ai.json, so a failure in one never hides the others.
 $ErrorActionPreference = 'Continue'

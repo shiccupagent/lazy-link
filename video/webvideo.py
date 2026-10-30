@@ -27,7 +27,7 @@ MAX_FILES = 300   # the PC gets the whole page folder; a bigger folder is probab
 # with RENDER_OUT set; the results it leaves in RENDER_OUT come back to the Mac.
 # __X__ marks are filled in by fill() before the script is sent.
 JOB_PS1 = r"""$ErrorActionPreference = 'Continue'
-if (-not $env:FFMPEG) { Write-Output 'webvideo: ffmpeg not found on the PC (the job runner looks in C:\render\tools\ffmpeg\bin and C:\Program Files\ffmpeg\bin)'; exit 3 }
+if (-not $env:FFMPEG) { Write-Output 'webvideo: ffmpeg not found on the PC (the job runner looks in C:\lazylink\tools\ffmpeg\bin and C:\Program Files\ffmpeg\bin)'; exit 3 }
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Output 'webvideo: Node.js 22 or newer is not on the PC (install it from nodejs.org)'; exit 3 }
 $query = (Get-Content query.txt -Raw).Trim()
 & node render.mjs page "$env:RENDER_OUT\work" __SECS__ __FPS__ __W__ __H__ __PAGE__ $query 2>&1 | ForEach-Object { "$_" }

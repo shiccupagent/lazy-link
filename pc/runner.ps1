@@ -1,14 +1,14 @@
 <#
-runner.ps1 - the PC job runner. setup-pc.ps1 copies it to C:\render\runner\runner.ps1 and runs it
-as the hidden 'render' account from the LazyLink\LazyRunner scheduled task, outside any SSH
+runner.ps1 - the PC job runner. setup-pc.ps1 copies it to C:\lazylink\runner\runner.ps1 and runs it
+as the hidden 'lazylink' account from the LazyLink\LazyRunner scheduled task, outside any SSH
 session, so a dropped link never kills a job.
 
-A job is a folder C:\render\jobs\<id>\ that the Mac fills (mac/pcjob):
+A job is a folder C:\lazylink\jobs\<id>\ that the Mac fills (mac/pcjob):
   in.tar    the job folder from the Mac; must contain job.ps1
   job.json  {"timeout_s": 3600}
   ready     written last; the runner only picks up folders that have it
 The runner unpacks in.tar into work\, runs job.ps1 there (env RENDER_OUT = the out\ folder,
-RENDER_ROOT = C:\render, FFMPEG and BLENDER when found), keeps the PC awake while it runs, kills
+RENDER_ROOT = C:\lazylink, FFMPEG and BLENDER when found), keeps the PC awake while it runs, kills
 the whole process tree on timeout or when a 'cancel' file appears, then packs out\ into out.tar.
 status.json is the state: queued -> running -> done | failed | timeout | cancelled.
 One job at a time, oldest first. When this file changes on disk the runner exits and the task's
@@ -24,7 +24,7 @@ $SelfHash = (Get-FileHash $Self).Hash
 $Ps = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
 $Tar = "$env:WINDIR\System32\tar.exe"
 
-# Tools a job may use, found once at start (render can only use what it can read).
+# Tools a job may use, found once at start (lazylink can only use what it can read).
 $env:RENDER_ROOT = $Root
 $ff = @((Join-Path $Root 'tools\ffmpeg\bin\ffmpeg.exe'), 'C:\Program Files\ffmpeg\bin\ffmpeg.exe', 'C:\Program Files\Kdenlive\bin\ffmpeg.exe') |
     Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -35,7 +35,7 @@ $bl = Get-ChildItem 'C:\Program Files\Blender Foundation\Blender *\blender.exe' 
 if ($bl) { $env:BLENDER = $bl.FullName }
 
 # Each job runs inside a Windows job object: TerminateJobObject ends the job and everything
-# it started (render may not use taskkill or WMI), and KILL_ON_JOB_CLOSE means a runner that
+# it started (lazylink may not use taskkill or WMI), and KILL_ON_JOB_CLOSE means a runner that
 # dies takes its job with it instead of leaving an orphan holding the GPU.
 Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;

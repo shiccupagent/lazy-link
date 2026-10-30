@@ -1,4 +1,4 @@
-# Lazy Link night mode, started by the scheduled task "LazyLink Lights Off". Runs as render; no admin.
+# Lazy Link night mode, started by the scheduled task "LazyLink Lights Off". Runs as lazylink; no admin.
 param([string]$Until = '07:55')
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $exe = 'C:\Program Files\OpenRGB\OpenRGB.exe'
