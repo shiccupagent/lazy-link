@@ -364,6 +364,8 @@ def main():
             print("\n$ " + show(cmd))
             if subprocess.run([sys.executable, str(HERE / cmd[0])] + cmd[1:], cwd=HERE).returncode:
                 sys.exit(f"stopped: {show(cmd)} failed")
+        if p["cmds"]:
+            print("\nInstalled. Try these first (each ends in a file to open): ./examples/try.py")
 
 
 if __name__ == "__main__":

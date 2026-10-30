@@ -1,0 +1,56 @@
+[
+ {
+  "name": "coin",
+  "params": {
+   "prompt": "a soft, warm coin pickup chime for a cozy video game, two gentle rising bell tones, round and mellow, clean, short",
+   "negative": "harsh, shrill, piercing, distortion, clipping, noise, hiss, reverb tail, music, speech, low quality",
+   "seconds": 2.0,
+   "seed": 11
+  }
+ },
+ {
+  "name": "jump",
+  "params": {
+   "prompt": "a light bouncy cartoon jump sound effect for a video game, a quick rising springy boing with a soft wooden tone, playful and clean",
+   "negative": "harsh, shrill, piercing, distortion, clipping, noise, hiss, reverb tail, music, speech, low quality",
+   "seconds": 2.0,
+   "seed": 11
+  }
+ },
+ {
+  "name": "door",
+  "params": {
+   "prompt": "a heavy old wooden door creaking open slowly in a quiet stone hallway, close up, natural",
+   "negative": "harsh, shrill, piercing, distortion, clipping, noise, hiss, reverb tail, music, speech, low quality",
+   "seconds": 3.0,
+   "seed": 11
+  }
+ },
+ {
+  "name": "click",
+  "params": {
+   "prompt": "a soft wooden button click sound effect for a game menu, a single gentle tock, warm and quiet, then silence",
+   "negative": "harsh, shrill, piercing, distortion, clipping, noise, hiss, reverb tail, music, speech, low quality",
+   "seconds": 2.0,
+   "seed": 11
+  }
+ },
+ {
+  "name": "steps",
+  "params": {
+   "prompt": "three slow footsteps on crunchy gravel, close up, natural outdoor recording, clean",
+   "negative": "harsh, shrill, piercing, distortion, clipping, noise, hiss, reverb tail, music, speech, low quality",
+   "seconds": 3.0,
+   "seed": 11
+  }
+ },
+ {
+  "name": "rain",
+  "params": {
+   "prompt": "gentle steady rain on a tin roof with soft distant thunder, calm, cozy ambience",
+   "negative": "harsh, shrill, piercing, distortion, clipping, noise, hiss, reverb tail, music, speech, low quality",
+   "seconds": 6.0,
+   "seed": 11
+  }
+ }
+]

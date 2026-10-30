@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8"><title>3D model turntable</title><style>
+html,body{margin:0;background:#6d7077;overflow:hidden;font-family:Arial Black,Arial,sans-serif}
+.lab{position:absolute;top:22px;text-align:center;color:#fff;font-size:34px;text-shadow:0 0 6px #000,0 0 3px #000}
+.lab small{display:block;font-size:20px;font-family:Arial,sans-serif;font-weight:bold;color:#ffd640}
+</style></head><body>
+<div id="labs"></div>
+<script type="importmap">{"imports":{"three":"./lib/three/three.module.js"}}</script>
+<script type="module">
+// Turntable: model.glb (as `imagegen.py make mesh` made it) beside model-small.glb (`imagegen.py shrink`), turning
+// under one studio light. ?big=12.0&small=0.4 puts their sizes in MB on the labels. Used by examples/try.py 3d
+// through video/webvideo.py (window.sceneReady, window.renderAt(t)); open it through any local web server to spin it yourself.
+import * as THREE from 'three';
+import { GLTFLoader } from './lib/three/jsm/loaders/GLTFLoader.js';
+const q = new URLSearchParams(location.search);
+const W = 1920, H = 1080, VW = 960;
+const MB = (k) => (q.get(k) ? ` · ${q.get(k)} MB` : '');
+const LABS = [['AS MADE', 'imagegen.py make mesh' + MB('big')], ['PHONE SIZE', 'imagegen.py shrink' + MB('small')]];
+document.getElementById('labs').innerHTML = LABS.map(([t, s], i) =>
+  `<div class="lab" style="left:${i * VW}px;width:${VW}px">${t}<small>${s}</small></div>`).join('');
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(W, H); r.setScissorTest(true); r.toneMapping = THREE.ACESFilmicToneMapping; r.setClearColor(0x6d7077, 1);
+document.body.appendChild(r.domElement);
+const cam = new THREE.PerspectiveCamera(30, VW / H, 0.01, 50); cam.position.set(0, 0.35, 2.6); cam.lookAt(0, 0, 0);
+const load = (f) => new Promise((res, rej) => new GLTFLoader().load(f, (g) => res(g.scene), undefined, rej));
+const views = [];
+window.sceneReady = (async () => {
+  for (const f of ['model.glb', 'model-small.glb']) {
+    const s = new THREE.Scene();
+    s.add(new THREE.HemisphereLight(0xdde6ff, 0x3a3328, 1.1));
+    const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(2, 3, 2.5); s.add(key);
+    const rim = new THREE.DirectionalLight(0xbfd4ff, 1.4); rim.position.set(-3, 1, -2); s.add(rim);
+    const m = await load(f);
+    const box = new THREE.Box3().setFromObject(m), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    m.position.sub(c); const g = new THREE.Group(); g.add(m); g.scale.setScalar(1.0 / Math.max(size.x, size.y, size.z)); s.add(g);
+    views.push({ s, g });
+  }
+  return true;
+})();
+window.renderAt = (t) => {
+  views.forEach(({ s, g }, i) => {
+    g.rotation.y = -0.6 + t * 0.8; g.rotation.x = 0.12;
+    r.setViewport(i * VW, 0, VW, H); r.setScissor(i * VW, 0, VW, H); r.render(s, cam);
+  });
+  return true;
+};
+</script></body></html>

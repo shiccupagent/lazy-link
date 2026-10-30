@@ -1,0 +1,31 @@
+[
+ {
+  "name": "floor",
+  "prompt": "seamless tileable texture, straight top-down orthographic photograph of an old worn oak hardwood floor, long narrow planks running vertically, open wood grain, small dark knots, scuffs and fine scratches, slightly gapped seams between boards, warm honey brown with darker worn patches, soft even overcast lighting, no cast shadows, no perspective, no vignette, sharp fine detail, photorealistic PBR albedo texture",
+  "w": 1024,
+  "h": 1024,
+  "seed": 511
+ },
+ {
+  "name": "wall",
+  "prompt": "seamless tileable texture, flat front-on photograph of faded vintage damask wallpaper pasted on an old plaster wall, muted sage green with a dusty cream floral pattern, a slightly lifting paper seam, fine paper fibre texture, faint water stains, soft even lighting, no cast shadows, no perspective, no vignette, sharp fine detail, photorealistic PBR albedo texture",
+  "w": 1024,
+  "h": 1024,
+  "seed": 522
+ },
+ {
+  "name": "side",
+  "prompt": "seamless tileable texture, flat front-on photograph of an old weathered red brick wall, running bond, bricks with chipped corners and pitted rough faces, recessed grey crumbling mortar joints, soft even overcast lighting, no perspective, no vignette, sharp fine detail, photorealistic PBR albedo texture",
+  "w": 1024,
+  "h": 1024,
+  "seed": 533
+ },
+ {
+  "name": "lantern",
+  "prompt": "photorealistic vintage brass camping lantern with a clear glass globe, a wire bail handle and a round fuel tank, three-quarter view from the right side and slightly above, the whole lantern in frame, warm worn brass with darker patina in the crevices, studio product photograph on a plain white background, soft even lighting, crisp fine detail, no text, no logos, no flame, no hands",
+  "w": 1024,
+  "h": 1024,
+  "seed": 7,
+  "cutout": true
+ }
+]

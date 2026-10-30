@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Bump maps: lit room</title><style>
+html,body{margin:0;background:#000;overflow:hidden;font-family:Arial Black,Arial,sans-serif}
+.lab{position:absolute;top:18px;text-align:center;color:#fff;font-size:34px;text-shadow:0 0 6px #000,0 0 3px #000}
+.lab small{display:block;font-size:20px;font-family:Arial,sans-serif;font-weight:bold;color:#ffd640}
+</style></head><body>
+<div class="lab" style="left:0;width:960px">PICTURE ONLY<small>flat, the way the picture came out</small></div>
+<div class="lab" style="left:960px;width:960px">WITH AI BUMP MAPS<small>imagegen.py bump: shapes from MoGe-2 on your PC</small></div>
+<script type="importmap">{"imports":{"three":"./lib/three/three.module.js"}}</script>
+<script type="module">
+// One room corner (floor, back wall, side wall) twice, lit by the same lamp circling the room: left without bump maps,
+// right with the <name>_normal.png that `imagegen.py bump` made. Used by examples/try.py room through video/webvideo.py:
+// window.sceneReady resolves when every picture has loaded; window.renderAt(t) draws the frame at t seconds.
+import * as THREE from 'three';
+const W = 1920, H = 1080, PW = 960;
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(W, H); r.setScissorTest(true); r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.05;
+document.body.appendChild(r.domElement);
+const tl = new THREE.TextureLoader(), loads = [];
+const tex = (f, srgb) => {
+  let ok, bad; loads.push(new Promise((y, n) => { ok = y; bad = n; }));
+  const t = tl.load(f, ok, undefined, () => bad(new Error('missing ' + f)));
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.anisotropy = 8; return t;
+};
+const SURF = { floor: [4, 4], wall: [4, 2.6], side: [4, 2.6] };
+const scenes = [false, true].map((bumps) => {
+  const s = new THREE.Scene();
+  s.add(new THREE.HemisphereLight(0xbfd0ff, 0x302418, 0.35));
+  const mk = (name) => {
+    const m = new THREE.MeshStandardMaterial({ map: tex(`${name}.png`, true), roughness: 0.82, metalness: 0 });
+    if (bumps) { m.normalMap = tex(`${name}_normal.png`, false); m.normalScale = new THREE.Vector2(1.4, 1.4); }
+    const [w, h] = SURF[name];
+    return new THREE.Mesh(new THREE.PlaneGeometry(w, h), m);
+  };
+  const floor = mk('floor'); floor.rotation.x = -Math.PI / 2; s.add(floor);
+  const wall = mk('wall'); wall.position.set(0, 1.3, -2); s.add(wall);
+  const side = mk('side'); side.rotation.y = Math.PI / 2; side.position.set(-2, 1.3, 0); s.add(side);
+  const lamp = new THREE.PointLight(0xffd2a0, 9, 9, 1.6); s.add(lamp);
+  const sun = new THREE.DirectionalLight(0xfff2e0, 0.35); sun.position.set(3, 4, 2); s.add(sun);
+  return { s, lamp };
+});
+const cam = new THREE.PerspectiveCamera(50, PW / H, 0.1, 50);
+cam.position.set(2.4, 2.6, 3.0); cam.lookAt(-0.6, 0.6, -0.6);
+window.renderAt = (t) => {
+  const a = t * 0.9;   // the lamp circles the room at hip height, so every bump catches it from each side
+  scenes.forEach(({ s, lamp }, i) => {
+    lamp.position.set(-0.4 + 1.3 * Math.cos(a), 0.9 + 0.3 * Math.sin(a * 1.7), -0.4 + 1.3 * Math.sin(a));
+    r.setViewport(i * PW, 0, PW, H); r.setScissor(i * PW, 0, PW, H); r.render(s, cam);
+  });
+  return true;
+};
+window.sceneReady = Promise.all(loads).then(() => true);
+</script></body></html>

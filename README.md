@@ -85,6 +85,19 @@ The main path above is a **Mac controlling a Windows PC**. Other mixes:
 | Any → Linux | [docs/LINUX-PC.md](docs/LINUX-PC.md) | pictures, sound, chat and speech now run there; tested on CPU in a virtual machine; GPU not yet tested on real hardware |
 | Any → Mac (Apple Silicon) | [docs/MAC-PC.md](docs/MAC-PC.md) | setup, undo, job runner, check and the picture, sound, chat and speech scripts written; tested on one Mac without a second machine; the real setup run and the models not yet |
 
+## Try these first
+Each one runs the real commands on your PC and ends in a file to open, in `out/try/<name>/`:
+```bash
+./examples/try.py            # the list, with what each one needs installed
+./examples/try.py spin       # an animated web page made into a video (no AI model)    -> spin.mp4
+./examples/try.py pictures   # floor, wall and brick surfaces + a lantern, side by side -> sheet.png
+./examples/try.py sounds     # six game sounds, checked for harshness                  -> soundboard.mp3
+./examples/try.py room       # AI bump maps on those surfaces, in a lit room            -> room.mp4
+./examples/try.py 3d         # the lantern as a 3D model, on a turntable               -> turntable.mp4
+```
+Every step prints its command, so you can run the same thing on your own pictures and sounds afterwards.
+They need ffmpeg and `pip3 install numpy scipy pillow` on your small computer.
+
 ## Use it
 ```bash
 ./imagegen/imagegen.py one "a red ceramic mug, product photo" --out out/ --cutout

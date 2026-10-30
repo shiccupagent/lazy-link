@@ -11,3 +11,4 @@ __pycache__/
 imagegen/watch-seen.json
 voice/recordings/
 voice/refs/
+out/
