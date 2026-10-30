@@ -117,6 +117,24 @@ Installed before 2026-10-30? Re-run Setup-PC; it renames `render` to `lazylink` 
   A job that woke the PC puts it back to sleep afterwards, and only then.
 - **Undo:** double-click `pc\Undo-PC.cmd` (add `-RemoveWorkFolder -RemoveOpenSSH` to remove everything).
 
+**What a job can reach on the PC.** Every job runs as `lazylink`, so a job (or an AI agent sending jobs) can reach only what that account can:
+- **Can:** the work folder `C:\lazylink` (tools, models, jobs), your extra model folders (`extra_model_folders`
+  in config.json; open on purpose so ComfyUI can read them), and what any standard account can read: Windows,
+  Program Files, ProgramData.
+- **Can't:** your own user folder (Windows keeps each account's folder private), other drives and the folders straight under `C:\`
+  once Setup-PC's drive lock has run (it adds a DENY for `lazylink` alone; your own access doesn't change), and admin
+  settings.
+- **Check it yourself:** `./check.py` lists every place outside the work folder that `lazylink` can still read or change.
+
+**Leftover risks, honestly:**
+- Anything in an extra model folder can be read, and maybe changed, by jobs. Keep only models there.
+- Folders other accounts left open to "Users" or "Everyone" inside Program Files or ProgramData stay readable (some apps do this).
+- Jobs can use the internet (to download models). A job you didn't write could send out what it can read, so run only jobs you trust.
+- Whoever holds your Mac's key can run jobs. Treat that computer like the PC's front door.
+- A drive you plug in after setup isn't locked until you run Setup-PC again.
+
+More: [docs/FAQ.md](docs/FAQ.md) (for example, how to let your AI organise your whole PC, and how to take that back).
+
 ## Licences of the models (check before you sell what you make)
 | Use | Model | Licence |
 |---|---|---|
@@ -143,6 +161,7 @@ Lazy Link is free and stays free (MIT). If it saves you money or time, you can c
 Thank you!
 
 ## More
+- [docs/FAQ.md](docs/FAQ.md): what jobs can reach, letting your AI reach more, and other questions.
 - [docs/BIOS-AND-WAKE.md](docs/BIOS-AND-WAKE.md): make the PC wake from the network (BIOS and Windows settings).
 - [docs/MAC-PC.md](docs/MAC-PC.md): an Apple Silicon Mac as the big computer: setup, what it changes, what is tested.
 - [docs/ROADMAP.md](docs/ROADMAP.md): what's done and what's next (every operating system, live power prices, more machines).

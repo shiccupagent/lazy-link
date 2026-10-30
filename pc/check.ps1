@@ -1,6 +1,6 @@
 # check.ps1 - job for `./check.py`: what this PC has, and how ready it is after months or years switched off.
-# Runs as the hidden account (no admin, no WMI: that account can't use it), only reads, never changes or deletes
-# anything. Writes $env:RENDER_OUT\check.json. No addresses, network-card IDs or user names go in it.
+# Runs as the hidden account (no admin, no WMI: that account can't use it). It only reads, except one test: it makes and
+# deletes an empty probe file to see where the account could change files. It never changes or deletes anything else. Writes $env:RENDER_OUT\check.json. No addresses, network-card IDs or user names go in it.
 $ErrorActionPreference = 'Continue'
 $r = [ordered]@{ checked = (Get-Date).ToString('s') }
 function Try-Get([scriptblock]$b) { try { & $b } catch { $null } }
@@ -54,6 +54,25 @@ $r.wake_on_magic_packet = Try-Get {
 $r.sleep_after_min = Try-Get {
     $q = powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null | Select-String 'Current AC Power Setting Index'
     if ($q) { [int]([Convert]::ToInt64(($q.Line -split ':\s*')[-1].Trim(), 16) / 60) } }
+
+# Other drives and folders straight under C:\ that this account can still read or change (pc/reach.ps1 has the list).
+# Read = list the folder; change = make and delete an empty, uniquely named file. Existing files are never touched.
+$r.reach = Try-Get {
+    . (Join-Path (Get-Location) 'reach.ps1')
+    $open = @($env:RENDER_ROOT)
+    if (Test-Path link.json) {
+        $x = (Get-Content link.json -Raw | ConvertFrom-Json).extra_model_folders
+        if ($x) { $open += @($x.PSObject.Properties | Where-Object { $_.Name -notlike '_*' } | ForEach-Object { $_.Value }) }
+    }
+    @(foreach ($p in Get-ReachTargets $open) {
+        $read = $false; $write = $false; $left = $null
+        try { $null = [IO.Directory]::EnumerateFileSystemEntries($p).GetEnumerator().MoveNext(); $read = $true } catch { }
+        $probe = Join-Path $p ('lazylink-probe-' + [guid]::NewGuid().ToString('N') + '.tmp')
+        try { [IO.File]::WriteAllText($probe, ''); $write = $true } catch { }
+        if ($write) { try { [IO.File]::Delete($probe) } catch { $left = $probe } }
+        if ($read -or $write) { [ordered]@{ path = $p; read = $read; write = $write; leftover = $left } }
+    })
+}
 
 $r | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $env:RENDER_OUT 'check.json') -Encoding utf8
 Get-Content (Join-Path $env:RENDER_OUT 'check.json')

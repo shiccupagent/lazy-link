@@ -3,7 +3,8 @@
 undo-pc.ps1 - reverses setup-pc.ps1. Run it through Undo-PC.cmd (double-click).
   Stops SSH logins, puts the original sshd_config back, removes the firewall rule and the
   hidden "lazylink" account. It also removes anything left from before 2026-10-30, when the
-  account was "render" and the folder C:\render. The work folder is kept unless
+  account was "render" and the folder C:\render. It also takes off the DENY entries Setup-PC put on your other
+  drives and folders (exactly those listed in lazy-link-drive-locks.json). The work folder is kept unless
   -RemoveWorkFolder is given; OpenSSH Server stays installed (but stopped) unless
   -RemoveOpenSSH is given.
   Undo-PC.cmd                                    remove the link, keep C:\lazylink (tools + models)
@@ -30,7 +31,7 @@ foreach ($t in @(@('LazyRunner', '\LazyLink\'), @('RenderRunner', '\RenderLink\'
     }
 }
 # Take back 'Log on as a batch job' from both accounts (setup-pc.ps1 granted it to lazylink).
-$sids = @(foreach ($a in $Accounts) { (Get-LocalUser -Name $a -ErrorAction SilentlyContinue).SID.Value } | Where-Object { $_ })
+$sids = @($Accounts | ForEach-Object { (Get-LocalUser -Name $_ -ErrorAction SilentlyContinue).SID.Value } | Where-Object { $_ })
 if ($sids.Count -gt 0) {
     $sec = Join-Path $env:TEMP 'lazylink-sec'
     secedit /export /cfg "$sec.inf" /areas USER_RIGHTS | Out-Null
@@ -54,6 +55,14 @@ Remove-Item (Join-Path $SshDir 'lazylink_authorized_keys') -ErrorAction Silently
 Remove-Item (Join-Path $SshDir 'render_authorized_keys') -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -ErrorAction SilentlyContinue
 Get-NetFirewallRule -Name 'LazyLink-SSH', 'RenderLink-SSH' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+# Take off the drive locks: only the DENY entries Setup-PC recorded, for the job account's SID; nothing else changes.
+$locksFile = Join-Path $SshDir 'lazy-link-drive-locks.json'
+if (Test-Path $locksFile) {
+    $locks = @((Get-Content $locksFile -Raw | ConvertFrom-Json).locks)
+    foreach ($l in $locks) { if (Test-Path -LiteralPath $l.path) { icacls $l.path /remove:d "*$($l.sid)" | Out-Null } }
+    Remove-Item $locksFile
+    Write-Host "drive locks removed ($($locks.Count))"
+}
 foreach ($a in $Accounts) { Remove-ItemProperty -Path $SpecialKey -Name $a -ErrorAction SilentlyContinue }
 foreach ($a in $Accounts) {
     $acct = Get-LocalUser -Name $a -ErrorAction SilentlyContinue

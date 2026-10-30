@@ -164,6 +164,21 @@ def health(c, p):
         else:
             out.append(("✔" if w else "!", "Network card can wake the PC" if w else
                         "The network card's \"Wake on Magic Packet\" is off (docs/BIOS-AND-WAKE.md shows where to turn it on)."))
+    reach = c.get("reach") or []
+    if reach:
+        def where(xs): return ", ".join(x["path"] for x in xs[:6]) + (f" and {len(xs) - 6} more" if len(xs) > 6 else "")
+        change, read = [x for x in reach if x.get("write")], [x for x in reach if not x.get("write")]
+        msg = "Lazy Link's account can still reach places outside its work folder: "
+        msg += "; ".join(t for t in (change and f"read and change {where(change)}", read and f"read {where(read)}") if t)
+        out.append(("!", msg + ". Run Setup-PC again to lock them (docs/FAQ.md)."))
+        left = [x["leftover"] for x in reach if x.get("leftover")]
+        if left:
+            out.append(("!", f"A check's empty test file couldn't be deleted; delete it yourself: {', '.join(left)}"))
+    extra = [d for k, v in (imagegen.load_pcjob().CFG.get("extra_model_folders") or {}).items() if not k.startswith("_")
+             for d in (v if isinstance(v, list) else [v])]
+    if extra:
+        out.append(("·", f"Open on purpose: your extra model folders ({', '.join(extra)}). Lazy Link's account can read "
+                         "and maybe change files there, so keep only models in them."))
     s = c.get("sleep_after_min")
     if s == 0:
         out.append(("·", "The PC never sleeps on its own. Lazy Link puts it back to sleep after jobs it woke it for."))
@@ -309,7 +324,7 @@ def main():
         if pc.POSIX:   # a Linux or Mac PC runs the same check as a shell script from its own folder
             imagegen.send([], "", {}, "check", out, 600, sh=(HERE / pc.PC_DIR[pc.OS_NAME] / "check.sh").read_text())
         else:
-            imagegen.send([], (HERE / "pc" / "check.ps1").read_text(), {}, "check", out, 600)
+            imagegen.send([HERE / "pc" / "reach.ps1"], (HERE / "pc" / "check.ps1").read_text(), {}, "check", out, 600)
         c = json.loads((out / "check.json").read_text(encoding="utf-8-sig"))
         print(f"(saved in {out / 'check.json'})")
     p = report(c)

@@ -10,6 +10,8 @@ What it changes (undo-pc.ps1 reverses all of it):
   3. sshd_config: key-only logins, and only "lazylink" may log in (your old file is backed up).
   4. Firewall: port 22 open on Private networks, from your home network only.
   5. A work folder (C:\lazylink by default) that "lazylink" can write to.
+  5b. Locks your other drives (D:, E:, ...) and the folders straight under C:\ against "lazylink"
+     (a DENY for that one account; nobody else's access changes). Your extra model folders stay open.
   6. The job runner: a scheduled task that runs jobs as "lazylink", even when nobody is signed in.
   7. Turns on Wake on Magic Packet on the wired network adapter, if it has the setting.
 Then it shows the address, the network card's MAC address and the SSH fingerprint your Mac
@@ -22,11 +24,15 @@ finish, then run Setup-PC again. After the upgrade, pair again from the Mac.
 
   Setup-PC.cmd                  do it (asks for the Mac's key if mac-key.pub is not beside it)
   Setup-PC.cmd -DryRun          only say what it would do
+  Setup-PC.cmd -NoDriveLock     skip step 5b
+  Setup-PC.cmd -OpenFolder D:\Art,E:\Sounds   also keep these open to jobs
 #>
 param(
     [switch]$DryRun,
     [string]$WorkRoot = 'C:\lazylink',
-    [string]$MacKeyFile = (Join-Path $PSScriptRoot 'mac-key.pub')
+    [string]$MacKeyFile = (Join-Path $PSScriptRoot 'mac-key.pub'),
+    [string[]]$OpenFolder = @(),   # extra folders the job account may keep reaching (besides your extra model folders)
+    [switch]$NoDriveLock
 )
 $ErrorActionPreference = 'Stop'
 
@@ -260,6 +266,40 @@ Step "work folder $WorkRoot ($User may write there)" {
     icacls $WorkRoot /grant "${User}:(OI)(CI)M" | Out-Null
 }
 Step 'start sshd now and at every boot' { Set-Service sshd -StartupType Automatic; Restart-Service sshd -Force }
+
+# 5b. Lock the other drives -------------------------------------------------------------------------
+# Windows often lets every account (Users / Authenticated Users) read or change other drives (D:, E:) and some
+# folders straight under C:\. Add a DENY for the job account ALONE on each (pc/reach.ps1 has the list and what stays
+# open); nobody else's access changes. Recorded in lazy-link-drive-locks.json (admin-only) so Undo-PC removes exactly these.
+$LocksFile = Join-Path $SshDir 'lazy-link-drive-locks.json'
+if ($NoDriveLock) { Note '(-NoDriveLock: other drives and folders left as they are)' }
+else {
+    . (Join-Path $PSScriptRoot 'reach.ps1')
+    $open = @($WorkRoot) + @($OpenFolder | ForEach-Object { $_ -split ',' } | Where-Object { $_ })   # -File passes 'a,b' as one string
+    $yamlPath = Join-Path $WorkRoot 'tools\ComfyUI\extra_model_paths.yaml'   # imagegen setup writes your extra model folders here
+    if (Test-Path $yamlPath) { $open += @(Get-Content $yamlPath | Where-Object { $_ -match '^\s{4}[A-Za-z]:[\\/]' } | ForEach-Object { $_.Trim() }) }
+    $pyTxt = Join-Path $WorkRoot 'lights\python-path.txt'                     # night lights (docs/BIOS-AND-WAKE.md) run that Python
+    if (Test-Path $pyTxt) { $open += Split-Path -Parent (Get-Content $pyTxt -Raw).Trim() }
+    $targets = @(Get-ReachTargets $open)
+    if (-not $targets) { Note 'Other drives: nothing to lock.' }
+    else {
+        Note "Lock these for '$User' (it keeps $WorkRoot and your extra model folders):"
+        $targets | ForEach-Object { Note "   $_" }
+        Step "add a DENY for '$User' on the $($targets.Count) place(s) above (a big drive can take a few minutes)" {
+            $sid = (Get-LocalUser -Name $User).SID.Value
+            $ErrorActionPreference = 'Continue'   # one folder icacls can't change shouldn't stop setup
+            $done = @(); if (Test-Path $LocksFile) { $done = @((Get-Content $LocksFile -Raw | ConvertFrom-Json).locks) }
+            foreach ($t in $targets) {
+                $out = icacls $t /deny "*${sid}:(OI)(CI)F" 2>&1
+                if ($LASTEXITCODE -eq 0) { if (-not ($done | Where-Object { $_.path -eq $t -and $_.sid -eq $sid })) { $done += [pscustomobject]@{ path = $t; sid = $sid } } }
+                else { Write-Host "   could not lock ${t}: $out" -ForegroundColor Yellow }
+            }
+            [ordered]@{ note = 'DENY entries Setup-PC added for the job account; Undo-PC removes exactly these'; locks = $done } |
+                ConvertTo-Json -Depth 4 | Set-Content $LocksFile -Encoding utf8
+            icacls $LocksFile /inheritance:r /grant "${SidSystem}:F" /grant "${SidAdmins}:F" | Out-Null
+        }
+    }
+}
 
 # 6. The job runner -----------------------------------------------------------------------------------
 # Jobs can't just run inside an SSH session: Windows' OpenSSH ends every process of a session
