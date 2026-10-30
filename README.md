@@ -86,9 +86,14 @@ against its size and sha256 before use. This repo's own code is MIT.
 
 ## Support this project
 
-Lazy Link is free and stays free (MIT). If it saves you money or time, you can chip in through
-[GitHub Sponsors](https://github.com/sponsors/shiccupagent), once or monthly, any amount.
-Personal sponsorships go 100% to the project. Thank you!
+Lazy Link is free and stays free (MIT). If it saves you money or time, you can chip in:
+- [GitHub Sponsors](https://github.com/sponsors/shiccupagent): once or monthly, any amount.
+  Personal sponsorships go 100% to the project.
+- [Any amount, once](https://buy.stripe.com/cNieVf6aIbMz1dJ0jUdZ601) (card, Apple Pay and more, through Stripe).
+- [Monthly, through Stripe](https://buy.stripe.com/5kQdRb42AdUH1dJaYydZ600): $1 a month for each one you pick.
+  [Cancel any time here](https://billing.stripe.com/p/login/5kQdRb42AdUH1dJaYydZ600).
+
+Thank you!
 
 ## More
 - [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md): why each piece is built the way it is.
