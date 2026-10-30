@@ -18,7 +18,8 @@ if [ ! -f "$KEY" ]; then
 else
   echo "Key already there: $KEY"
 fi
-cp "$KEY.pub" pc/mac-key.pub
+cp "$KEY.pub" pc/mac-key.pub      # a Windows big PC reads it here
+cp "$KEY.pub" linux/mac-key.pub   # a Linux one here
 chmod +x mac/pcjob imagegen/imagegen.py local/local.py
 command -v pbcopy >/dev/null && pbcopy < "$KEY.pub" && copied=" (also copied to the clipboard)" || copied=""
 

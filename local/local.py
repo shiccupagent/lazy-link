@@ -35,6 +35,7 @@ def run(files, want, out, name):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows pipes default to cp1252
     p = argparse.ArgumentParser(prog="local", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("ask"); a.add_argument("asks"); a.add_argument("--out", required=True)
@@ -44,10 +45,12 @@ def main():
     t = sub.add_parser("transcribe"); t.add_argument("files", nargs="+"); t.add_argument("--out", required=True)
     sub.add_parser("setup")
     args = p.parse_args()
+    if imagegen.load_pcjob().LINUX:
+        sys.exit("local.py: not on Linux yet. The local AI runs on the Windows PC only for now.")
     if args.cmd == "setup":
         out = HERE.parent / "reports" / ("local-ai-" + __import__("time").strftime("%Y%m%d-%H%M%S"))
         imagegen.send([HERE.parent / "imagegen" / "models.json"], (HERE / "setup-local-ai.ps1").read_text(), {}, "local-setup", out, 4 * 3600)
-        print((out / "local-ai.json").read_text())
+        print((out / "local-ai.json").read_text(encoding="utf-8-sig", errors="replace"))
         return
     if args.cmd == "transcribe":
         out = run([(f, f"inputs/{Path(f).name}") for f in args.files], {"transcribe": True}, args.out, "local-transcribe")
@@ -58,7 +61,7 @@ def main():
         src = Path(args.asks)
         with tempfile.TemporaryDirectory() as td:
             f = Path(td) / "asks.jsonl"
-            f.write_text(src.read_text())
+            f.write_bytes(src.read_bytes())
             out = run([f], want, args.out, "local-ask")
         print(f"answers in {out / 'answers.jsonl'}")
     else:
@@ -69,7 +72,7 @@ def main():
             ans = out / "answers.jsonl"
             if not ans.exists():
                 sys.exit("no answer came back; the job log above says why (pcjob log ID shows it again)")
-            print(json.loads(ans.read_text().splitlines()[0])["answer"])
+            print(json.loads(ans.read_text(encoding="utf-8").splitlines()[0])["answer"])
 
 
 if __name__ == "__main__":

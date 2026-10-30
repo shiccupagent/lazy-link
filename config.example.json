@@ -6,6 +6,8 @@
  "broadcast": [
   "192.168.1.255"
  ],
+ "pc_os": "windows",
+ "_pc_os_doc": "windows (default: the PC runs pc/ scripts) or linux (a PC set up with linux/setup-linux.sh; pc_root is then /srv/lazy-link and the ssh user lazy; `pcjob pair --os linux` sets both). Only ./check.py runs on Linux so far.",
  "pc_root": "C:/render",
  "extra_model_folders": {
   "_doc": "optional: model folders you already have on the PC (ComfyUI layout), read-only, so nothing downloads twice",

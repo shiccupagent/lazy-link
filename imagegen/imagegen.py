@@ -50,8 +50,12 @@ def model_keys(s):
     return keys
 
 
-def send(files, ps1, want, name, out, timeout):
+def send(files, ps1, want, name, out, timeout, sh=None):
+    """Run a job on the PC: ps1 is the Windows script, sh the Linux one (only check.py has one so far)."""
     pc = load_pcjob()
+    if pc.LINUX and sh is None:   # refuse before pc.wake(): nothing is woken for a command that cannot run
+        sys.exit("imagegen: not on Linux yet. This command needs the Windows PC's GPU scripts; "
+                 "a Linux PC runs only ./check.py for now.")
     woke = pc.wake()
     with tempfile.TemporaryDirectory() as td:
         job = Path(td) / "job"
@@ -60,7 +64,7 @@ def send(files, ps1, want, name, out, timeout):
             src, rel = (f, Path(f).name) if not isinstance(f, tuple) else f
             (job / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(src, job / rel)
-        (job / "job.ps1").write_text(ps1)
+        (job / ("job.sh" if pc.LINUX else "job.ps1")).write_text(sh if pc.LINUX else ps1)
         json.dump(want, open(job / "want.json", "w"))
         # the PC-side scripts read your extra model folders from here (config.json, never anything else)
         json.dump({"extra_model_folders": pc.CFG.get("extra_model_folders", {})}, open(job / "link.json", "w"))
@@ -75,7 +79,7 @@ def run(asks, keys, out, timeout):
         a = Path(td) / "asks.json"
         json.dump(asks, open(a, "w"), indent=1)
         send([HERE / "models.json", HERE / "pc" / "batch.py", a], RUN_PS1, keys, "imagegen", out, timeout)
-    t = json.load(open(out / "timings.json"))
+    t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
     print(f"ComfyUI start {t['comfy_boot_s']} s")
     for r in t["runs"]:
         print(f"{r['model']:7} {r['ask']:24} {r['seconds']:6.1f} s{'  (first: loads the model)' if r['cold'] else ''}")
@@ -86,7 +90,7 @@ def make(key, asks, out, timeout):
     r = MODELS["recipes"][key]
     out = Path(out).expanduser().resolve()
     base = Path(asks).parent
-    asks = json.load(open(asks))
+    asks = json.loads(Path(asks).read_text(encoding="utf-8-sig"))
     with tempfile.TemporaryDirectory() as td:
         a = Path(td) / "asks.json"
         json.dump(asks, open(a, "w"), indent=1)
@@ -94,7 +98,7 @@ def make(key, asks, out, timeout):
                  (HERE / "recipes" / f"{r['template']}.api.json", f"recipes/{r['template']}.api.json")]
         files += [(base / x["image"], f"inputs/{x['image']}") for x in asks if "image" in x]
         send(files, RUN_PS1, {"recipe": key}, f"imagegen-{key}", out, timeout)
-    t = json.load(open(out / "timings.json"))
+    t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
     print(f"ComfyUI start {t['comfy_boot_s']} s")
     for row in t["runs"]:
         print(f"{key:6} {row['ask']:24} {row['seconds']:7.1f} s  {row['files']} file(s){'  (first: loads the model)' if row['cold'] else ''}")
@@ -102,6 +106,7 @@ def make(key, asks, out, timeout):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows pipes default to cp1252
     p = argparse.ArgumentParser(prog="imagegen", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run"); r.add_argument("asks"); r.add_argument("--out", required=True)
@@ -119,7 +124,7 @@ def main():
     pv = sub.add_parser("preview"); pv.add_argument("dir")
     a = p.parse_args()
     if a.cmd == "run":
-        run(json.load(open(a.asks)), model_keys(a.models), a.out, a.timeout)
+        run(json.loads(Path(a.asks).read_text(encoding="utf-8-sig")), model_keys(a.models), a.out, a.timeout)
     elif a.cmd == "one":
         w, h = (int(x) for x in a.size.lower().split("x"))
         run([{"name": a.name, "prompt": a.prompt, "w": w, "h": h, "seed": a.seed, "cutout": a.cutout}], model_keys(a.model), a.out, a.timeout)
@@ -153,14 +158,14 @@ def main():
     elif a.cmd == "setup":
         out = REPO / "reports" / ("setup-" + time.strftime("%Y%m%d-%H%M%S"))
         send([HERE / "models.json"], (HERE / "pc" / "setup-comfy.ps1").read_text(), [], "imagegen-setup", out, 3600)
-        print((out / "_log.txt").read_text())
+        print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
     else:
         files = {MODELS["models"][k][part] for k in model_keys(a.models) for part in ("unet", "clip", "vae")} | {MODELS["cutout"]["model"]}
         files = sorted(files | {f for r in a.recipes.split(",") if r for f in MODELS["recipes"][r]["files"]})
         out = REPO / "reports" / ("fetch-" + time.strftime("%Y%m%d-%H%M%S"))
         send([HERE / "models.json"], (HERE / "pc" / "fetch.ps1").read_text(),
              files, "imagegen-fetch", out, 4 * 3600)
-        print((out / "_log.txt").read_text())
+        print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
 
 
 if __name__ == "__main__":

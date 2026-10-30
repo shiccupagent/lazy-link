@@ -15,12 +15,12 @@ does the heavy lifting with no windows, and goes back to sleep.
 - **Guides:** [BIOS and wake](BIOS-AND-WAKE.md), and an optional [remote desktop](REMOTE-DESKTOP.md) guide.
 
 ## Next
-1. **Any small computer.** The controller side is Python + the system's own `ssh`, so Linux works as-is.
-   Windows (10/11 ship OpenSSH) needs an `install-windows.ps1` twin of `install-mac.sh`.
-   - Done when the setup steps pass on Windows and Linux.
+1. **Any small computer.** Windows: `Install-Windows.cmd` (tested on Windows 11; pairing from Windows still to test).
+   Linux: `install-mac.sh` works there too (to test).
 2. **Any big computer:**
-   - **Linux + NVIDIA:** a `runner.sh` twin of `pc/runner.ps1` (a systemd service under its own user) and `setup-linux.sh`.
-     ComfyUI, llama.cpp and Whisper all run there.
+   - **Linux + NVIDIA:** setup, undo, job runner and `check.py` done and tested in a Linux virtual machine
+     ([LINUX-PC.md](LINUX-PC.md)). Still to do: pictures, sound, 3D and chat on Linux (ComfyUI, llama.cpp and Whisper
+     all run there), then a real Linux PC with an NVIDIA card.
    - **Apple Silicon Mac as the big computer:** ComfyUI and llama.cpp use Metal; launchd runs the runner.
    - **AMD cards:** ROCm on Linux, DirectML/ZLUDA on Windows. Speed and model support vary, so `check.py` rates them separately.
    - Each one is done only when it has passed on real hardware.

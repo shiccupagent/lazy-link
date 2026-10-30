@@ -47,6 +47,17 @@ a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (r
    ./local/local.py setup                # chat models + Whisper (about 35 GB)
    ```
 
+## Other computers
+The main path above is a **Mac controlling a Windows PC**. Other mixes:
+
+| Small computer → big computer | How | State |
+|---|---|---|
+| Mac → Windows | the steps above | tested end to end |
+| Windows → Windows | [docs/WINDOWS-SMALL-COMPUTER.md](docs/WINDOWS-SMALL-COMPUTER.md) | installer tested on Windows 11; pairing not yet |
+| Linux → Windows | `./install-mac.sh` works on Linux too (it only uses `ssh-keygen`) | not yet tested |
+| Any → Linux | [docs/LINUX-PC.md](docs/LINUX-PC.md) | jobs and `check.py` tested in a Linux virtual machine; pictures, sound, 3D and chat on Linux come next |
+| Any → Mac | [docs/ROADMAP.md](docs/ROADMAP.md) | planned |
+
 ## Use it
 ```bash
 ./imagegen/imagegen.py one "a red ceramic mug, product photo" --out out/ --cutout

@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
-"""pcjob - send work to your Windows PC and bring the results back.
+"""pcjob - send work to your big computer (Windows or Linux) and bring the results back.
 
-A job is a local folder with a job.ps1 in it (plus any inputs). On the PC, job.ps1 runs in a
-copy of that folder; whatever it writes to $env:RENDER_OUT comes back. $env:RENDER_ROOT is the
-PC's work folder (C:/render); $env:FFMPEG and $env:BLENDER point at those tools when the PC has
-them. The PC's runner (pc/runner.ps1) runs it outside SSH, so closing the Mac's connection or
+A job is a local folder with a job.ps1 (Windows PC) or a job.sh (Linux PC) in it, plus any inputs.
+On the PC the script runs in a copy of that folder; whatever it writes to $RENDER_OUT comes back.
+$RENDER_ROOT is the PC's work folder (C:/render, or /srv/lazy-link on Linux). On Windows,
+$env:FFMPEG and $env:BLENDER point at those tools when the PC has them. The PC's runner
+(pc/runner.ps1 or linux/runner.sh) runs it outside SSH, so closing the Mac's connection or
 the Mac sleeping never kills a job.
 
-  pcjob pair PC_ADDRESS          first time: check the PC's fingerprint, write ~/.ssh/config + config.json
+  pcjob pair PC_ADDRESS [--os linux]   first time: check the PC's fingerprint, write ~/.ssh/config + config.json
   pcjob run DIR [--name N] [--timeout S] [--wait] [--fetch DEST] [--cheap]   send a job (wakes the PC)
   pcjob cheap                    the cheap-electricity hours, and whether they're on now
   pcjob status ID | list | log ID | wait ID [--max S] | fetch ID DEST | cancel ID | rm ID
   pcjob put FILE                 copy a big input onto the PC once (prints media:<name>)
   pcjob ping | info | wake | sleep | push-runner   (sleep refuses while someone is using the PC)
 
+Every remote step is a named operation below with two strings: the PowerShell one (Windows)
+and the sh one (Linux). pc_os in config.json picks which one runs.
 Settings: config.json beside this repo's README (made by `pcjob pair`; see config.example.json).
 """
-import argparse, base64, hashlib, ipaddress, json, os, socket, subprocess, sys, tarfile, tempfile, time
+import argparse, base64, hashlib, ipaddress, json, os, re, shlex, socket, subprocess, sys, tarfile, tempfile, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -26,14 +29,36 @@ KEY = Path.home() / ".ssh" / "lazy-link"
 KNOWN = Path.home() / ".ssh" / "known_hosts_lazy_link"
 if not KEY.exists() and (Path.home() / ".ssh" / "render-link").exists():   # the name before 2026-10-29
     KEY, KNOWN = Path.home() / ".ssh" / "render-link", Path.home() / ".ssh" / "known_hosts_render_link"
-CFG = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
+CFG = json.loads(CONFIG.read_text(encoding="utf-8-sig")) if CONFIG.exists() else {}
 HOST = CFG.get("ssh_host", "lazy-pc")
-ROOT = CFG.get("pc_root", "C:/render")
+OS_CHOICES = ("windows", "linux")
+OS_NAME = CFG.get("pc_os", "windows")
+if OS_NAME not in OS_CHOICES:
+    sys.exit(f"pcjob: pc_os in config.json must be windows or linux, not {OS_NAME!r}")
+LINUX = OS_NAME == "linux"
+ROOT = CFG.get("pc_root", "/srv/lazy-link" if LINUX else "C:/render")
+SSH_USER = "lazy" if LINUX else "render"
+q = shlex.quote
+SAFE_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
+
+
+def set_os(os_name):
+    """Switch the target OS (pair --os): the work folder and ssh user follow it."""
+    global OS_NAME, LINUX, ROOT, SSH_USER
+    OS_NAME, LINUX = os_name, os_name == "linux"
+    ROOT = "/srv/lazy-link" if LINUX else "C:/render"
+    SSH_USER = "lazy" if LINUX else "render"
 
 
 def need_config():
     if not CFG.get("pc_address"):
         sys.exit(f"pcjob: not paired yet ({CONFIG} missing). Run ./install-mac.sh, set up the PC, then: pcjob pair PC_ADDRESS")
+
+
+def ids_ok(job_id):
+    if not SAFE_ID.fullmatch(job_id or ""):
+        sys.exit(f"pcjob: not a job id: {job_id!r}")
+    return job_id
 
 
 def ps(script, check=True, timeout=120):
@@ -46,6 +71,21 @@ def ps(script, check=True, timeout=120):
     if check and r.returncode != 0:
         sys.exit(f"pcjob: PC command failed ({r.returncode}): {r.stderr.strip() or r.stdout.strip()}")
     return r.stdout.strip()
+
+
+def sh(script, check=True, timeout=120):
+    """Run a POSIX sh snippet on a Linux PC over ssh (the ssh user's login shell reads it)."""
+    need_config()
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", HOST, script], capture_output=True, text=True, timeout=timeout)
+    if check and r.returncode != 0:
+        sys.exit(f"pcjob: PC command failed ({r.returncode}): {r.stderr.strip() or r.stdout.strip()}")
+    return r.stdout.strip()
+
+
+def on_pc(op, *args, check=True, timeout=120):
+    """One named remote operation: op(*args) gives (PowerShell, sh); this OS's string runs."""
+    win, lin = op(*args)
+    return sh(lin, check, timeout) if LINUX else ps(win, check, timeout)
 
 
 def scp(src, dst, timeout=3600):
@@ -93,16 +133,140 @@ def wake(max_s=120):
     sys.exit(f"pcjob: PC did not wake within {max_s}s (works from sleep; not from a full shutdown with Fast Startup on)")
 
 
+# ---- named remote operations: each returns (PowerShell for Windows, sh for Linux) ----
+
+def op_heartbeat_age():
+    return (f"$b='{ROOT}/runner.heartbeat'; if (Test-Path $b) {{ [int]((Get-Date)-(Get-Item $b).LastWriteTime).TotalSeconds }} else {{ -1 }}",
+            "b=" + q(ROOT + "/runner.heartbeat") + '; if [ -e "$b" ]; then echo $(( $(date +%s) - $(stat -c %Y "$b") )); else echo -1; fi')
+
+
+def op_status(job_id):
+    d = ROOT + "/jobs/" + job_id
+    return (f"$f='{ROOT}/jobs/{job_id}/status.json'; if (Test-Path $f) {{ Get-Content $f -Raw }} "
+            f"elseif (Test-Path '{ROOT}/jobs/{job_id}/ready') {{ '{{\"state\":\"queued\"}}' }} else {{ '{{\"state\":\"missing\"}}' }}",
+            "d=" + q(d) + '; if [ -f "$d/status.json" ]; then cat "$d/status.json"; '
+            'elif [ -f "$d/ready" ]; then echo \'{"state":"queued"}\'; else echo \'{"state":"missing"}\'; fi')
+
+
+def op_mkdir_job(job_id):
+    return (f"New-Item -ItemType Directory -Force '{ROOT}/jobs/{job_id}' | Out-Null",
+            "mkdir -p " + q(ROOT + "/jobs/" + job_id))
+
+
+def op_mark_ready(job_id, timeout_s):
+    js = json.dumps({"timeout_s": timeout_s})
+    d = ROOT + "/jobs/" + job_id
+    return (f"Set-Content '{ROOT}/jobs/{job_id}/job.json' '{js}'; "
+            f"Set-Content '{ROOT}/jobs/{job_id}/ready' (Get-Date -Format o)",
+            "printf '%s\\n' " + q(js) + " > " + q(d + "/job.json") + " && date -Iseconds > " + q(d + "/ready"))
+
+
+def op_list_jobs():
+    return (f"Get-ChildItem '{ROOT}/jobs' -Directory | Sort-Object CreationTime | ForEach-Object {{ "
+            "$s = Join-Path $_.FullName 'status.json'; "
+            "$st = if (Test-Path $s) { (Get-Content $s -Raw | ConvertFrom-Json).state } else { 'queued' }; "
+            "'{0,-10} {1}' -f $st, $_.Name }",
+            "cd " + q(ROOT + "/jobs") + " 2>/dev/null || exit 0; for d in *; do [ -d \"$d\" ] || continue; "
+            "st=queued; if [ -f \"$d/status.json\" ]; then st=$(sed -n 's/.*\"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$d/status.json\"); fi; "
+            "printf '%-10s %s\\n' \"$st\" \"$d\"; done")
+
+
+def op_log(job_id):
+    d = ROOT + "/jobs/" + job_id
+    return (f"Get-Content '{ROOT}/jobs/{job_id}/log.txt' -Tail 40 -ErrorAction SilentlyContinue; '--- err'; "
+            f"Get-Content '{ROOT}/jobs/{job_id}/err.txt' -Tail 20 -ErrorAction SilentlyContinue",
+            "tail -n 40 " + q(d + "/log.txt") + " 2>/dev/null; echo '--- err'; tail -n 20 " + q(d + "/err.txt") + " 2>/dev/null; true")
+
+
+def op_err_tail(job_id):
+    d = ROOT + "/jobs/" + job_id
+    return (f"Get-Content '{ROOT}/jobs/{job_id}/err.txt' -Tail 20 -ErrorAction SilentlyContinue",
+            "tail -n 20 " + q(d + "/err.txt") + " 2>/dev/null; true")
+
+
+def op_cancel(job_id):
+    return (f"Set-Content '{ROOT}/jobs/{job_id}/cancel' x",
+            "echo x > " + q(ROOT + "/jobs/" + job_id + "/cancel"))
+
+
+def op_remove_job(job_id):
+    return (f"Remove-Item '{ROOT}/jobs/{job_id}' -Recurse -Force",
+            "rm -rf " + q(ROOT + "/jobs/" + job_id))
+
+
+def op_media_size(name):
+    f = ROOT + "/media/" + name
+    return (f"$f='{ROOT}/media/{name}'; if (Test-Path $f) {{ (Get-Item $f).Length }} else {{ -1 }}",
+            "f=" + q(f) + '; if [ -f "$f" ]; then stat -c %s "$f"; else echo -1; fi')
+
+
+def op_mkdir_media():
+    return (f"New-Item -ItemType Directory -Force '{ROOT}/media' | Out-Null",
+            "mkdir -p " + q(ROOT + "/media"))
+
+
+def op_move_media(name):
+    return (f"Move-Item '{ROOT}/media/{name}.part' '{ROOT}/media/{name}' -Force",
+            "mv -f " + q(ROOT + "/media/" + name + ".part") + " " + q(ROOT + "/media/" + name))
+
+
+def op_has_media(name):
+    p = ROOT + "/media/" + name
+    return (f"Test-Path '{ROOT}/media/{name}'",
+            "if [ -e " + q(p) + " ]; then echo True; else echo False; fi")
+
+
+def op_in_use():
+    # Linux: someone is "using" the PC when a user has an active graphical or console session
+    # (the lazy service runs with no login session, so it never counts).
+    lin = ("e=0; for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do "
+           "a=$(loginctl show-session \"$s\" -p Active --value); c=$(loginctl show-session \"$s\" -p Class --value); "
+           "t=$(loginctl show-session \"$s\" -p Type --value); "
+           "if [ \"$a\" = yes ] && [ \"$c\" = user ] && { [ \"$t\" = x11 ] || [ \"$t\" = wayland ] || [ \"$t\" = tty ]; }; "
+           "then e=1; fi; done; echo \"$e 0\"")
+    return ("$e = @(Get-Process explorer -EA SilentlyContinue | Where-Object SessionId -gt 0).Count; "
+            "$l = @(Get-Process LogonUI -EA SilentlyContinue).Count; \"$e $l\"", lin)
+
+
+def op_busy_jobs():
+    return (f"@(Get-ChildItem '{ROOT}/jobs' -Directory | Where-Object {{ $s = Join-Path $_.FullName 'status.json'; "
+            "(Test-Path (Join-Path $_.FullName 'ready')) -and (-not (Test-Path $s) -or (Get-Content $s -Raw | ConvertFrom-Json).state -eq 'running') }).Count",
+            "n=0; for d in " + q(ROOT + "/jobs") + "/*; do [ -f \"$d/ready\" ] || continue; "
+            "if [ ! -f \"$d/status.json\" ] || grep -q '\"state\": *\"running\"' \"$d/status.json\"; then n=$((n+1)); fi; done; echo $n")
+
+
+def op_sleep(hib):
+    script = ("Add-Type -Namespace RL -Name Pwr -MemberDefinition '[DllImport(\"powrprof.dll\")] "
+              "public static extern bool SetSuspendState(bool h, bool f, bool d);'; [void][RL.Pwr]::SetSuspendState($" + ("true" if hib else "false") + ", $false, $false)")
+    # Linux: the sudoers line from setup-linux.sh allows exactly this command, and nothing else
+    return (script, "sudo -n systemctl suspend")
+
+
+def op_info():
+    return (f"Get-Content '{ROOT}/pc-info.json' -Raw", "cat " + q(ROOT + "/pc-info.json"))
+
+
+def op_mkdir_runner():
+    return (f"New-Item -ItemType Directory -Force '{ROOT}/runner' | Out-Null",
+            "mkdir -p " + q(ROOT + "/runner"))
+
+
+def op_move_runner(f):
+    return (f"Move-Item '{ROOT}/runner/{f}.new' '{ROOT}/runner/{f}' -Force",
+            "mv -f " + q(ROOT + "/runner/" + f + ".new") + " " + q(ROOT + "/runner/" + f))
+
+
+# ---- what the Mac does with those ----
+
 def runner_alive():
-    out = ps(f"$b='{ROOT}/runner.heartbeat'; if (Test-Path $b) {{ [int]((Get-Date)-(Get-Item $b).LastWriteTime).TotalSeconds }} else {{ -1 }}")
+    out = on_pc(op_heartbeat_age)
     age = int(out or -1)
     return 0 <= age < 60, age
 
 
 def status(job_id):
-    out = ps(f"$f='{ROOT}/jobs/{job_id}/status.json'; if (Test-Path $f) {{ Get-Content $f -Raw }} "
-             f"elseif (Test-Path '{ROOT}/jobs/{job_id}/ready') {{ '{{\"state\":\"queued\"}}' }} else {{ '{{\"state\":\"missing\"}}' }}")
-    return json.loads(out)
+    ids_ok(job_id)
+    return json.loads(on_pc(op_status, job_id))
 
 
 def windows():
@@ -142,8 +306,9 @@ def wait_for_cheap(force=False):
 
 def cmd_run(a):
     src = Path(a.dir).resolve()
-    if not (src / "job.ps1").is_file():
-        sys.exit(f"pcjob: {src}/job.ps1 not found")
+    script = "job.sh" if LINUX else "job.ps1"
+    if not (src / script).is_file():
+        sys.exit(f"pcjob: {src}/{script} not found (this PC runs {'Linux' if LINUX else 'Windows'} jobs: they need a {script})")
     name = "".join(c if c.isalnum() or c in "-_" else "-" for c in (a.name or src.name))[:40]
     wait_for_cheap(getattr(a, "cheap", False))
     job_id = time.strftime("%Y%m%d-%H%M%S-") + name
@@ -151,7 +316,7 @@ def cmd_run(a):
     ok, age = runner_alive()
     if not ok:
         sys.exit(f"pcjob: the PC's job runner is not running (heartbeat age {age}s). "
-                 "Run pc/Setup-PC.cmd on the PC again.")
+                 + ("Run linux/setup-linux.sh on the PC again." if LINUX else "Run pc/Setup-PC.cmd on the PC again."))
     with tempfile.TemporaryDirectory() as td:
         tar = Path(td) / "in.tar"
         with tarfile.open(tar, "w") as t:
@@ -160,11 +325,10 @@ def cmd_run(a):
                     continue
                 t.add(p, arcname=str(p.relative_to(src)), recursive=False)
         size = tar.stat().st_size
-        ps(f"New-Item -ItemType Directory -Force '{ROOT}/jobs/{job_id}' | Out-Null")
+        on_pc(op_mkdir_job, job_id)
         print(f"sending {job_id} ({size / 1e6:.1f} MB)")
         scp(str(tar), f"{HOST}:{ROOT}/jobs/{job_id}/in.tar")
-    ps(f"Set-Content '{ROOT}/jobs/{job_id}/job.json' '{json.dumps({'timeout_s': a.timeout})}'; "
-       f"Set-Content '{ROOT}/jobs/{job_id}/ready' (Get-Date -Format o)")
+    on_pc(op_mark_ready, job_id, a.timeout)
     print(job_id)
     if a.wait or a.fetch:
         st = cmd_wait(argparse.Namespace(id=job_id, max=a.timeout + 300))
@@ -176,6 +340,7 @@ def cmd_run(a):
 
 
 def cmd_wait(a):
+    ids_ok(a.id)
     deadline = time.time() + a.max
     last = None
     while True:
@@ -186,7 +351,7 @@ def cmd_wait(a):
         if st["state"] not in ("queued", "running"):
             print(json.dumps(st, indent=1))
             if st["state"] != "done":
-                print(ps(f"Get-Content '{ROOT}/jobs/{a.id}/err.txt' -Tail 20 -ErrorAction SilentlyContinue", check=False))
+                print(on_pc(op_err_tail, a.id, check=False))
             return st
         if time.time() > deadline:
             sys.exit(f"pcjob: gave up waiting after {a.max}s; job still {st['state']} on the PC (pcjob status {a.id})")
@@ -194,6 +359,7 @@ def cmd_wait(a):
 
 
 def cmd_fetch(a):
+    ids_ok(a.id)
     st = status(a.id)
     if st["state"] in ("queued", "running", "missing"):
         sys.exit(f"pcjob: {a.id} is {st['state']}; nothing to fetch yet")
@@ -220,29 +386,28 @@ def cmd_status(a):
 
 
 def cmd_list(a):
-    print(ps(f"Get-ChildItem '{ROOT}/jobs' -Directory | Sort-Object CreationTime | ForEach-Object {{ "
-             "$s = Join-Path $_.FullName 'status.json'; "
-             "$st = if (Test-Path $s) { (Get-Content $s -Raw | ConvertFrom-Json).state } else { 'queued' }; "
-             "'{0,-10} {1}' -f $st, $_.Name }"))
+    print(on_pc(op_list_jobs))
     ok, age = runner_alive()
     print(f"runner: {'up' if ok else 'DOWN'} (heartbeat {age}s ago)")
 
 
 def cmd_log(a):
-    print(ps(f"Get-Content '{ROOT}/jobs/{a.id}/log.txt' -Tail 40 -ErrorAction SilentlyContinue; '--- err'; "
-             f"Get-Content '{ROOT}/jobs/{a.id}/err.txt' -Tail 20 -ErrorAction SilentlyContinue", check=False))
+    ids_ok(a.id)
+    print(on_pc(op_log, a.id, check=False))
 
 
 def cmd_cancel(a):
-    ps(f"Set-Content '{ROOT}/jobs/{a.id}/cancel' x")
+    ids_ok(a.id)
+    on_pc(op_cancel, a.id)
     print(f"cancel requested for {a.id}")
 
 
 def cmd_rm(a):
+    ids_ok(a.id)
     st = status(a.id)
     if st["state"] == "running":
         sys.exit("pcjob: job is running; cancel it first")
-    ps(f"Remove-Item '{ROOT}/jobs/{a.id}' -Recurse -Force")
+    on_pc(op_remove_job, a.id)
     print(f"removed {a.id} from the PC")
 
 
@@ -257,18 +422,18 @@ def put(path):
     stem = "".join(c if c.isalnum() or c in "-_" else "-" for c in path.stem)[:40]
     name = f"{h.hexdigest()[:12]}-{stem}{path.suffix.lower()}"
     size = path.stat().st_size
-    have = ps(f"$f='{ROOT}/media/{name}'; if (Test-Path $f) {{ (Get-Item $f).Length }} else {{ -1 }}")
+    have = on_pc(op_media_size, name)
     if int(have or -1) != size:
-        ps(f"New-Item -ItemType Directory -Force '{ROOT}/media' | Out-Null")
+        on_pc(op_mkdir_media)
         print(f"uploading {path.name} ({size / 1e6:.0f} MB)", file=sys.stderr)
         scp(str(path), f"{HOST}:{ROOT}/media/{name}.part")
-        ps(f"Move-Item '{ROOT}/media/{name}.part' '{ROOT}/media/{name}' -Force")
+        on_pc(op_move_media, name)
     return f"media:{name}"
 
 
 def has_media(ref):
     name = ref[len("media:"):]
-    return ps(f"Test-Path '{ROOT}/media/{name}'") == "True"
+    return on_pc(op_has_media, name) == "True"
 
 
 def cmd_put(a):
@@ -279,8 +444,7 @@ def cmd_put(a):
 def in_use():
     """Is someone on the PC? Signed in (a desktop in a user session) and not at the lock screen.
     (render can't see their idle time, so an unlocked desktop counts as in use.)"""
-    out = ps("$e = @(Get-Process explorer -EA SilentlyContinue | Where-Object SessionId -gt 0).Count; "
-             "$l = @(Get-Process LogonUI -EA SilentlyContinue).Count; \"$e $l\"")
+    out = on_pc(op_in_use)
     e, l = (int(x) for x in out.split())
     return e > 0 and l == 0
 
@@ -297,16 +461,15 @@ def release(woke):
 
 def cmd_sleep(a):
     hib = bool(a and a.hibernate)
+    if hib and LINUX:
+        sys.exit("pcjob: hibernate is a Windows option; a Linux PC sleeps with: pcjob sleep")
     if in_use() and not (a and a.nobody_there):
         sys.exit("pcjob: someone is signed in and using the PC (unlocked); not putting it to sleep")
-    busy = ps(f"@(Get-ChildItem '{ROOT}/jobs' -Directory | Where-Object {{ $s = Join-Path $_.FullName 'status.json'; "
-              "(Test-Path (Join-Path $_.FullName 'ready')) -and (-not (Test-Path $s) -or (Get-Content $s -Raw | ConvertFrom-Json).state -eq 'running') }).Count")
+    busy = on_pc(op_busy_jobs)
     if busy != "0":
         sys.exit(f"pcjob: {busy} job(s) queued or running; not putting the PC to sleep")
-    script = ("Add-Type -Namespace RL -Name Pwr -MemberDefinition '[DllImport(\"powrprof.dll\")] "
-              "public static extern bool SetSuspendState(bool h, bool f, bool d);'; [void][RL.Pwr]::SetSuspendState($" + ("true" if hib else "false") + ", $false, $false)")
     try:  # the PC drops the link as it sleeps, so this call never returns cleanly
-        ps(script, check=False, timeout=20)
+        on_pc(op_sleep, hib, check=False, timeout=20)
     except subprocess.TimeoutExpired:
         pass
     # hibernate writes memory to disk first; a check that arrives meanwhile can cancel it
@@ -316,27 +479,29 @@ def cmd_sleep(a):
 
 
 def cmd_push_runner(a):
-    ps(f"New-Item -ItemType Directory -Force '{ROOT}/runner' | Out-Null")
-    for f in ("runner.ps1",):
-        # copy then move, so a running runner never sees a half-written file
-        scp(str(REPO / "pc" / f), f"{HOST}:{ROOT}/runner/{f}.new")
-        ps(f"Move-Item '{ROOT}/runner/{f}.new' '{ROOT}/runner/{f}' -Force")
+    f = "runner.sh" if LINUX else "runner.ps1"
+    on_pc(op_mkdir_runner)
+    # copy then move, so a running runner never sees a half-written file
+    scp(str(REPO / ("linux" if LINUX else "pc") / f), f"{HOST}:{ROOT}/runner/{f}.new")
+    on_pc(op_move_runner, f)
     print("runner pushed (a running runner restarts itself on the new copy)")
 
 
 def cmd_info(a):
-    print(ps(f"Get-Content '{ROOT}/pc-info.json' -Raw"))
+    print(on_pc(op_info))
 
 
 def cmd_pair(a):
     """First contact: show the PC's SSH fingerprint (compare it with the PC's screen), then write an
     ~/.ssh/config entry that only ever uses our own key and our own pinned host key."""
+    if a.os and a.os != OS_NAME:
+        set_os(a.os)
     if not KEY.exists():
         sys.exit("pcjob: no Mac key yet; run ./install-mac.sh first")
     scan = subprocess.run(["ssh-keyscan", "-T", "8", "-t", "ed25519", a.address], capture_output=True, text=True)
     line = next((l for l in scan.stdout.splitlines() if " ssh-ed25519 " in l), None)
     if not line:
-        sys.exit(f"pcjob: no SSH answer from {a.address}. Is Setup-PC.cmd done, and the PC's network set to Private?")
+        sys.exit(f"pcjob: no SSH answer from {a.address}. Is the PC's setup done, and its network set to Private?")
     with tempfile.NamedTemporaryFile("w", suffix=".pub", delete=False) as t:
         t.write(line.split(" ", 1)[1] + "\n")
     fp = subprocess.run(["ssh-keygen", "-lf", t.name], capture_output=True, text=True).stdout.split()[1]
@@ -347,8 +512,8 @@ def cmd_pair(a):
     host_line = line.replace(a.address, HOST, 1)
     old = [l for l in (KNOWN.read_text().splitlines() if KNOWN.exists() else []) if not l.startswith(HOST + " ")]
     KNOWN.write_text("\n".join(old + [host_line]) + "\n")
-    block = (f"\nHost {HOST}\n  HostName {a.address}\n  User render\n  IdentityFile {KEY}\n  IdentitiesOnly yes\n"
-             f"  UserKnownHostsFile {KNOWN}\n  StrictHostKeyChecking yes\n  HostKeyAlias {HOST}\n")
+    block = (f"\nHost {HOST}\n  HostName {a.address}\n  User {SSH_USER}\n  IdentityFile \"{KEY}\"\n  IdentitiesOnly yes\n"
+             f"  UserKnownHostsFile \"{KNOWN}\"\n  StrictHostKeyChecking yes\n  HostKeyAlias {HOST}\n")
     conf = Path.home() / ".ssh" / "config"
     text = conf.read_text() if conf.exists() else ""
     if f"Host {HOST}\n" in text:   # replace our old block (it runs until the next Host line)
@@ -357,8 +522,8 @@ def cmd_pair(a):
         text = text[:start].rstrip("\n") + (text[nxt:] if nxt != -1 else "")
     conf.write_text((text.rstrip("\n") + "\n" if text.strip() else "") + block.lstrip("\n"))
     conf.chmod(0o600)
-    CFG.update({"ssh_host": HOST, "pc_address": a.address, "pc_root": ROOT})
-    info = json.loads(ps(f"Get-Content '{ROOT}/pc-info.json' -Raw"))
+    CFG.update({"ssh_host": HOST, "pc_address": a.address, "pc_root": ROOT, "pc_os": OS_NAME})
+    info = json.loads(on_pc(op_info))
     nets = info.get("networks", [])
     if isinstance(nets, dict):
         nets = [nets]
@@ -368,13 +533,14 @@ def cmd_pair(a):
         net = ipaddress.ip_network(f"{a.address}/{mine.get('prefix', 24)}", strict=False)
         CFG["broadcast"] = [str(net.broadcast_address)]
     CONFIG.write_text(json.dumps(CFG, indent=1) + "\n")
-    print(f"paired: ~/.ssh/config host '{HOST}', settings in {CONFIG}")
+    print(f"paired: ~/.ssh/config host '{HOST}' ({OS_NAME}), settings in {CONFIG}")
     print(f"PC: {info.get('gpu')}; Wake-on-LAN {'ready (' + CFG['pc_mac'] + ')' if CFG.get('pc_mac') and mine.get('wired') else 'needs a wired network cable'}")
     ok, age = runner_alive()
     print(f"job runner: {'up' if ok else 'DOWN'} (heartbeat {age}s ago)")
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # Windows pipes default to cp1252
     p = argparse.ArgumentParser(prog="pcjob", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run"); r.add_argument("dir"); r.add_argument("--name"); r.add_argument("--timeout", type=int, default=3600)
@@ -388,7 +554,8 @@ def main():
     for n in ("list", "ping", "info", "wake", "push-runner", "cheap"):
         sub.add_parser(n)
     pr = sub.add_parser("pair"); pr.add_argument("address"); pr.add_argument("--yes", action="store_true", help="skip the fingerprint question")
-    sl = sub.add_parser("sleep"); sl.add_argument("--hibernate", action="store_true", help="hibernate: fully off, no blinking sleep light")
+    pr.add_argument("--os", choices=OS_CHOICES, help="what the PC runs (default: keep config.json's pc_os, else windows)")
+    sl = sub.add_parser("sleep"); sl.add_argument("--hibernate", action="store_true", help="hibernate: fully off, no blinking sleep light (Windows)")
     sl.add_argument("--nobody-there", action="store_true", help="only when you know nobody is at the PC (session left unlocked); hibernate keeps their windows")
     a = p.parse_args()
     if a.cmd == "ping":

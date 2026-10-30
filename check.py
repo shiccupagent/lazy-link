@@ -9,7 +9,7 @@ after months or years switched off, then say which AI models it can run and the 
 It only reads: nothing on the PC is changed or deleted. Fixes that need you (Windows Update, the graphics
 driver, BIOS settings) are listed in plain words.
 """
-import argparse, json, shlex, subprocess, sys, time
+import argparse, json, os, shlex, shutil, subprocess, sys, time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -91,26 +91,39 @@ def health(c, p):
         out.append(("!", "Windows 10 stopped getting free security updates in October 2025. Upgrade to Windows 11 if the PC "
                          "allows it, or sign up for Microsoft's Extended Security Updates."))
     lu = c.get("last_update")
+    linux = imagegen.load_pcjob().LINUX
     if not lu:
-        out.append(("·", "Couldn't read the Windows Update history. If the PC sat unused for a while, run Windows Update "
-                         "(Settings > Windows Update) until it says you're up to date."))
+        out.append(("·", "Couldn't read the system update history (/var/log/apt/history.log). If the PC sat unused for a while, "
+                         "install its updates (sudo apt update && sudo apt upgrade) until there is nothing left to install."
+                     if linux else
+                     "Couldn't read the Windows Update history. If the PC sat unused for a while, run Windows Update "
+                     "(Settings > Windows Update) until it says you're up to date."))
     else:
         age = (time.time() - time.mktime(time.strptime(lu, "%Y-%m-%d"))) / 86400
-        out.append(("✔" if age < 45 else "!", f"Last Windows update: {lu}" + (
-            "" if age < 45 else f" ({int(age)} days ago). Run Windows Update first (Settings > Windows Update), "
-                                "restart, and run it again until it says you're up to date.")))
+        label = "Last system update" if linux else "Last Windows update"
+        fix = ("Install its updates first (sudo apt update && sudo apt upgrade), restart, and run it again until there is nothing left to install."
+               if linux else
+               "Run Windows Update first (Settings > Windows Update), restart, and run it again until it says you're up to date.")
+        out.append(("✔" if age < 45 else "!", f"{label}: {lu}" + ("" if age < 45 else f" ({int(age)} days ago). {fix}")))
     if not gpu.get("name"):
         out.append(("✘", "No NVIDIA graphics card found (or its driver isn't installed). Lazy Link needs one for now: "
                          "install the driver from nvidia.com/drivers, then check again."))
     else:
-        d = float(gpu["driver"]) if gpu.get("driver", "").replace(".", "", 1).isdigit() else 0
+        drv = (gpu.get("driver") or "").split(".")   # "566.36" (Windows) or "550.54.14" (Linux): major.minor
+        d = float(".".join(drv[:2])) if drv[0].isdigit() and (len(drv) == 1 or drv[1].isdigit()) else 0
         mark = "✔" if d >= DRIVER_GOOD else ("!" if d >= DRIVER_MIN else "✘")
         out.append((mark, f"{gpu['name']}, {gpu['vram_gb']:g} GB graphics memory, driver {gpu.get('driver')}" + (
             "" if mark == "✔" else ". Update the driver: NVIDIA App, or nvidia.com/drivers (Game Ready or Studio both work).")))
     ram = c.get("ram_gb") or 0
     out.append(("✔" if ram >= 16 else "!", f"{ram:g} GB memory" + ("" if ram >= 16 else " (16 GB or more makes big models much smoother)")))
-    root = (imagegen.load_pcjob().ROOT or "C:/render")[:2].upper()
+    root = imagegen.load_pcjob().ROOT or "C:/render"
     disks = {d["drive"].upper(): d for d in c.get("disks") or []}
+    if root.startswith("/"):   # Linux: the disk is the longest mount point that holds the work folder
+        disks = {d["drive"]: d for d in c.get("disks") or []}
+        holds = [m for m in disks if root == m or root.startswith(m.rstrip("/") + "/")]
+        root = max(holds, key=len, default=root)
+    else:
+        root = root[:2].upper()
     free = disks.get(root, {}).get("free_gb", 0)
     if free >= p["download"] + 20:
         out.append(("✔", f"{free} GB free on {root} (the recommended models need about {p['download']:.0f} GB)"))
@@ -136,6 +149,15 @@ def health(c, p):
     return out
 
 
+def show(cmd):
+    """The command as you would type it on this computer: py on Windows, python3 elsewhere."""
+    rel = Path(cmd[0])   # "./imagegen/imagegen.py" -> imagegen/imagegen.py
+    if os.name == "nt":
+        ok_py = shutil.which("py") and subprocess.run(["py", "-3", "-c", "pass"], capture_output=True).returncode == 0
+        return subprocess.list2cmdline([("py" if ok_py else "python"), str(rel)] + cmd[1:])
+    return shlex.join(["python3", rel.as_posix()] + cmd[1:])
+
+
 def report(c):
     p = plan(c)
     print("\nYour PC")
@@ -149,13 +171,14 @@ def report(c):
     if p["cmds"]:
         print(f"\nRecommended install (about {p['download']:.0f} GB of downloads):")
         for cmd in p["cmds"]:
-            print("  " + shlex.join(cmd))
+            print("  " + show(cmd))
     else:
         print("\nNothing fits this PC yet; fix the ✘ lines above and check again.")
     return p
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # ✔/✘ marks; Windows pipes default to cp1252
     ap = argparse.ArgumentParser(prog="check", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--setup", action="store_true", help="install what the report recommends")
     ap.add_argument("--from", dest="src", help="an earlier check.json")
@@ -164,7 +187,10 @@ def main():
         c = json.loads(Path(a.src).read_text(encoding="utf-8-sig"))
     else:
         out = HERE / "reports" / ("check-" + time.strftime("%Y%m%d-%H%M%S"))
-        imagegen.send([], (HERE / "pc" / "check.ps1").read_text(), {}, "check", out, 600)
+        if imagegen.load_pcjob().LINUX:   # a Linux PC runs the same check as a shell script
+            imagegen.send([], "", {}, "check", out, 600, sh=(HERE / "linux" / "check.sh").read_text())
+        else:
+            imagegen.send([], (HERE / "pc" / "check.ps1").read_text(), {}, "check", out, 600)
         c = json.loads((out / "check.json").read_text(encoding="utf-8-sig"))
         print(f"(saved in {out / 'check.json'})")
     p = report(c)
@@ -172,9 +198,9 @@ def main():
         if any(m == "✘" for m, _ in health(c, p)):
             sys.exit("\nNot installing: fix the ✘ lines first.")
         for cmd in p["cmds"]:
-            print("\n$ " + shlex.join(cmd))
-            if subprocess.run(cmd, cwd=HERE).returncode:
-                sys.exit(f"stopped: {' '.join(cmd)} failed")
+            print("\n$ " + show(cmd))
+            if subprocess.run([sys.executable, str(HERE / cmd[0])] + cmd[1:], cwd=HERE).returncode:
+                sys.exit(f"stopped: {show(cmd)} failed")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 # Lazy Link: notes for Claude Code
 
-This repo lets you (Claude, on the Mac) run AI jobs on the user's Windows PC GPU. Setup steps: README.md.
+This repo lets you (Claude, on the small computer: Mac, or Windows/Linux) run AI jobs on the user's big PC's GPU.
+The main path is Mac → Windows. A Linux big PC (`"pc_os": "linux"`) runs `job.sh` jobs and check.py; imagegen/local
+are Windows-only for now (they say so). Setup steps: README.md; other mixes: README "Other computers".
 
 ## Commands
 - `./check.py [--setup]`: what the PC has, what to fix, which models fit (only reads the PC).

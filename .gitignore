@@ -1,6 +1,7 @@
 # personal: your PC's address, network card and model folders
 config.json
 pc/mac-key.pub
+linux/mac-key.pub
 reports/
 __pycache__/
 .DS_Store
