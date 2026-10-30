@@ -11,7 +11,7 @@ real clock never matters. The page must expose two things (docs/WEB-TO-VIDEO.md)
   window.renderAt(t)   draws the frame at t seconds
   window.sceneReady    a Promise that resolves once everything the page loads has loaded
 The PC needs Node 22 or newer, Chrome (or Chromium) and ffmpeg. The Windows job (job.ps1) and the
-Linux/Mac job (job.sh) run the same steps; neither has run on a real PC yet (docs/WEB-TO-VIDEO.md).
+Linux/Mac job (job.sh) run the same steps; the Windows one is tested on an RTX 3090 PC (docs/WEB-TO-VIDEO.md).
 """
 import argparse, math, re, shutil, sys, tempfile
 from pathlib import Path
@@ -100,9 +100,10 @@ def main():
 
     # The page's folder goes along: its pictures, models and scripts. Hidden files and the output folder stay home.
     files = [(HERE / "render.mjs", "render.mjs")]
+    skip = out if page.parent.resolve() in out.parents else None   # only an output folder INSIDE the page's folder
     for f in sorted(page.parent.rglob("*")):
         rel = f.relative_to(page.parent)
-        if not f.is_file() or any(part.startswith(".") for part in rel.parts) or out in f.resolve().parents:
+        if not f.is_file() or any(part.startswith(".") for part in rel.parts) or (skip and skip in f.resolve().parents):
             continue
         files.append((f, f"page/{rel.as_posix()}"))
     if len(files) - 1 > MAX_FILES:

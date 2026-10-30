@@ -59,4 +59,7 @@ Frame count is `round(seconds * fps)`.
 
 - Mac, local headless Chrome: `video/examples/spin.html` renders (20 frames at 10 fps, 1280x720 and 640x360).
 - Mac, POSIX job script: `job.sh` ran end to end with a stand-in for the PC (`sh job.sh` with `RENDER_OUT` set) and produced `video.mp4` and `still.png`.
-- Not yet run on a real PC: the Windows `job.ps1`, NVENC, and the Linux and Mac job runners on real hardware.
+- Tested on a Windows PC (RTX 3090, 2026-10-30): 2D canvas and three.js WebGL pages (`examples/try.py spin`, `room`, `3d`).
+- With nobody signed in on Windows, Chrome gets no WebGL from the graphics card. render.mjs then draws on the CPU
+  (SwiftShader) by itself, slower but the same pictures. If a page never gets ready, render.mjs prints the page's own errors.
+- Not yet run on real hardware: NVENC, and the Linux and Mac job runners.

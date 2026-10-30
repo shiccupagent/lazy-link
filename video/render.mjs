@@ -58,7 +58,7 @@ function findChrome() {
 let stopChrome = () => {};
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => { await stopChrome(); process.exit(130); });
 
-async function main() {
+async function main(software = false) {
   const chromePath = findChrome();
   const root = resolve(DIR);
   const server = createServer((req, res) => {
@@ -77,7 +77,10 @@ async function main() {
   const debugPort = 9300 + Math.floor(Math.random() * 500);
   const profile = mkdtempSync(join(tmpdir(), 'webvideo-cdp-'));
   let chromeError = null;
-  const chrome = spawn(chromePath, ['--headless=new', '--mute-audio', '--force_high_performance_gpu', '--ignore-gpu-blocklist', '--enable-gpu',
+  // software: Chrome's own CPU renderer (SwiftShader), for when the graphics card gives this session no WebGL
+  const gpuFlags = software ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+    : ['--force_high_performance_gpu', '--ignore-gpu-blocklist', '--enable-gpu'];
+  const chrome = spawn(chromePath, ['--headless=new', '--mute-audio', ...gpuFlags,
     `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, `--window-size=${width},${height}`, '--no-first-run', 'about:blank'],
   { stdio: 'ignore' });
   chrome.on('error', (e) => { chromeError = e; });
@@ -100,7 +103,14 @@ async function main() {
     await new Promise((ok, bad) => { ws.onopen = ok; ws.onerror = () => bad(new Error('DevTools connection failed')); });
     let id = 0;
     const waiting = new Map();
-    ws.onmessage = (e) => { const m = JSON.parse(e.data); const done = waiting.get(m.id); if (done) { waiting.delete(m.id); done(m); } };
+    const pageErrors = [];   // the page's own errors, shown if it never gets ready
+    ws.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.method === 'Runtime.exceptionThrown') { const d = m.params.exceptionDetails; pageErrors.push(d.exception?.description || d.text); }
+      if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') pageErrors.push(m.params.args.map((a) => a.value ?? a.description).join(' '));
+      if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error') pageErrors.push(`${m.params.entry.text} ${m.params.entry.url || ''}`);
+      const done = waiting.get(m.id); if (done) { waiting.delete(m.id); done(m); }
+    };
     const send = (method, params = {}) => new Promise((ok) => { const i = ++id; waiting.set(i, ok); ws.send(JSON.stringify({ id: i, method, params })); });
     const ev = async (expression) => {
       const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
@@ -108,6 +118,7 @@ async function main() {
       return r.result?.result?.value;
     };
 
+    await send('Runtime.enable'); await send('Log.enable');
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
     const url = new URL(`http://127.0.0.1:${server.address().port}/${encodeURIComponent(PAGE)}`);
     if (QUERY) url.search = QUERY.replace(/^\?/, '');
@@ -125,7 +136,8 @@ async function main() {
       state = await ev(READY);
       if (state === 'wait') await sleep(250);
     }
-    if (state !== 'ok') throw new Error(state === 'wait' ? 'the page never set window.sceneReady' : `page not ready: ${state}`);
+    if (state !== 'ok') throw new Error((state === 'wait' ? 'the page never set window.sceneReady' : `page not ready: ${state}`) +
+      (pageErrors.length ? `; the page said: ${pageErrors.slice(0, 5).join(' | ').slice(0, 1200)}` : ''));
     console.log('gpu:', await ev(`(() => { const g = document.createElement('canvas').getContext('webgl2'); const x = g && g.getExtension('WEBGL_debug_renderer_info'); return x ? g.getParameter(x.UNMASKED_RENDERER_WEBGL) : 'no WebGL2'; })()`));
 
     const dir = join(OUT, 'frames');
@@ -145,4 +157,11 @@ async function main() {
   }
 }
 
-try { await main(); } catch (e) { console.error(`render.mjs: ${e.message}`); process.exit(1); }
+try {
+  await main();
+} catch (e) {
+  // Windows gives a job with nobody signed in no hardware WebGL; draw on the CPU instead (slower, same pictures).
+  if (!/WebGL context/i.test(e.message)) { console.error(`render.mjs: ${e.message}`); process.exit(1); }
+  console.log('render.mjs: no WebGL from the graphics card in this session (often: nobody is signed in); drawing on the CPU, slower');
+  try { await main(true); } catch (e2) { console.error(`render.mjs: ${e2.message}`); process.exit(1); }
+}
