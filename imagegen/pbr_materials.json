@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "_doc": "Starting points for pbr: rough = base roughness 0-1, var = how much cavities and albedo detail add on top, metal = 0, 1 or \"edges\" (worn ridges). Rounded from common PBR reference-chart ranges; NOT checked against a source online. Tune by eye on a render.",
+  "presets": {
+    "wood_lacquer":  {"version": 1, "rough": 0.35, "var": 0.15, "metal": 0},
+    "wood_raw":      {"version": 1, "rough": 0.7,  "var": 0.15, "metal": 0},
+    "sand":          {"version": 1, "rough": 0.85, "var": 0.1,  "metal": 0},
+    "grass":         {"version": 1, "rough": 0.8,  "var": 0.1,  "metal": 0},
+    "clay":          {"version": 1, "rough": 0.75, "var": 0.1,  "metal": 0},
+    "stone":         {"version": 1, "rough": 0.8,  "var": 0.15, "metal": 0},
+    "concrete":      {"version": 1, "rough": 0.85, "var": 0.1,  "metal": 0},
+    "fabric":        {"version": 1, "rough": 0.85, "var": 0.1,  "metal": 0},
+    "leather":       {"version": 1, "rough": 0.55, "var": 0.15, "metal": 0},
+    "plastic":       {"version": 1, "rough": 0.4,  "var": 0.1,  "metal": 0},
+    "rubber":        {"version": 1, "rough": 0.9,  "var": 0.05, "metal": 0},
+    "ice":           {"version": 1, "rough": 0.08, "var": 0.05, "metal": 0},
+    "paint_glossy":  {"version": 1, "rough": 0.25, "var": 0.1,  "metal": 0},
+    "steel_painted": {"version": 1, "rough": 0.5,  "var": 0.2,  "metal": "edges"},
+    "brushed_steel": {"version": 1, "rough": 0.3,  "var": 0.1,  "metal": 1},
+    "cast_iron":     {"version": 1, "rough": 0.6,  "var": 0.15, "metal": 1},
+    "chrome":        {"version": 1, "rough": 0.08, "var": 0.03, "metal": 1},
+    "gold":          {"version": 1, "rough": 0.25, "var": 0.08, "metal": 1}
+  }
+}

@@ -107,6 +107,7 @@ They need ffmpeg and `pip3 install numpy scipy pillow` on your small computer.
 ./imagegen/imagegen.py preview out/                                          # 3D turntable pictures (needs Blender on the PC)
 ./imagegen/imagegen.py tile floor.png --out out/                             # seamless copy of a surface picture (no AI; a 2x2 preview shows the seams)
 ./imagegen/imagegen.py bump floor.png --out out/                             # bump maps: a normal map + a height map, so a flat picture looks raised in games and 3D
+./imagegen/imagegen.py pbr floor.png --material wood_lacquer --out out/     # roughness + metal + ORM maps (no AI; presets in imagegen/pbr_materials.json)
 ./imagegen/imagegen.py shrink out/red-mug__mesh.glb --out out/               # game-size .glb: 512 px JPEG textures instead of PNG
 python3 imagegen/bake.py model.glb --out out/bake/ --mode full               # light map + AO baked on the PC's GPU (Windows PC only, see below)
 ./local/local.py ask-one "Explain Wake-on-LAN in two sentences"
@@ -124,6 +125,8 @@ It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pill
 `audio_check` and `pick_sounds` need ffmpeg (`brew install ffmpeg`) and numpy (`audio_check`) or numpy and scipy (`pick_sounds`);
 `sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
 `tile`, `bump` (with `--tile` and `--object`) and `shrink` are new; the PC step of `bump` has not yet run from this repo.
+`pbr` (new) makes roughness and metal maps and one packed ORM (R = ambient occlusion, G = roughness, B = metal) from a surface picture; it uses `<name>_height.png` and `<name>_ao.png` beside the picture when they exist, and `--tile` wraps the maps for seamless pictures. Load the outputs in three.js with NoColorSpace. It needs numpy and Pillow only.
+Every `<name>_pbr.json` says `"source": "heuristic"`, and `--model` accepts only `heuristic` for now (a model-made roughness comes in v2 on the PC).
 Or just ask your AI agent in this folder: *"make me 10 coin sounds"*. [AGENTS.md](AGENTS.md) tells it how.
 
 ### Bake light maps and ambient occlusion (Windows PC)

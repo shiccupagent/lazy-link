@@ -10,6 +10,8 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
   imagegen.py fetch [--models krea2] [--recipes audio,mesh]   download missing model files (official repos, sha256-checked)
   imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh) or maps (normal + depth) from a recipe
   imagegen.py tile PICTURE... --out DIR      seamless copy of each surface picture, on this computer, no AI (tiles.py)
+  imagegen.py pbr PICTURE... --out DIR [--material NAME] [--rough R] [--rough-var V] [--metal 0|1|edges] [--tile]
+                                             roughness, metal and ORM maps from surface pictures, on this computer, no AI (pbr.py)
   imagegen.py bump PICTURE... --out DIR [--tile] [--slope 0.35]   bump maps for surface pictures: DIR/<name>_normal/_height/_ao.png (runs make maps);
                                              prints each normal map's mean slope, warns under 0.15; --slope steepens flat ones
                                              --tile for seamless pictures (the maps wrap too)
@@ -155,6 +157,14 @@ def main():
     tl.add_argument("--flatten", type=float, help="even out light drift wider than this share; 0 = off (tiles.FLATTEN)")
     sk = sub.add_parser("shrink", help="phone-size copies of .glb files (512 px JPEG textures); needs Pillow here")
     sk.add_argument("glbs", nargs="+"); sk.add_argument("--out", required=True)
+    pb = sub.add_parser("pbr", help="roughness and metal maps (plus one ORM) from surface pictures (pbr.py); needs numpy and Pillow here")
+    pb.add_argument("pictures", nargs="+"); pb.add_argument("--out", required=True)
+    pb.add_argument("--material", help="a preset from imagegen/pbr_materials.json, e.g. wood_lacquer")
+    pb.add_argument("--rough", type=float, help="base roughness 0-1; overrides the preset, and alone needs no --material")
+    pb.add_argument("--rough-var", type=float, help="how much cavities and albedo detail add on top; overrides the preset")
+    pb.add_argument("--metal", choices=["0", "1", "edges"], help="0, 1, or edges (worn ridges); overrides the preset")
+    pb.add_argument("--tile", action="store_true", help="the pictures are seamless: the maps wrap too")
+    pb.add_argument("--model", default="heuristic", help="roughness maker; only heuristic for now")
     a = p.parse_args()
     if a.cmd == "run":
         run(json.loads(Path(a.asks).read_text(encoding="utf-8-sig")), model_keys(a.models), a.out, a.timeout)
@@ -221,6 +231,23 @@ def main():
                 if after < bumpmaps.SLOPE_LOW:
                     print(f"bump: WARN {f.stem}: normal map nearly flat (mean slope {after:.2f} < {bumpmaps.SLOPE_LOW}); "
                           "the game's light will show little relief. Try --slope 0.35")
+    elif a.cmd == "pbr":
+        try:
+            import pbr
+        except ImportError as e:
+            sys.exit(f"imagegen pbr needs numpy and Pillow on this computer (pip3 install numpy pillow): {e}")
+        try:   # all checks before anything is written
+            pbr.check_model(a.model)
+            metal = None if a.metal is None else (a.metal if a.metal == "edges" else int(a.metal))
+            vals, preset_version = pbr.resolve(a.material, a.rough, a.rough_var, metal)
+        except ValueError as e:
+            sys.exit(f"imagegen pbr: {e}")
+        pics = [Path(x).resolve() for x in a.pictures]
+        if len({f.stem for f in pics}) != len(pics):
+            sys.exit("imagegen pbr: two pictures have the same name (file name without extension); rename one")
+        out = Path(a.out).expanduser().resolve(); out.mkdir(parents=True, exist_ok=True)
+        for f in pics:
+            pbr.make_pbr(f, out, vals, a.tile, a.material, preset_version, a.model)
     elif a.cmd == "shrink":
         try:
             import shrink_glb
