@@ -12,7 +12,7 @@ the Mac sleeping never kills a job.
   pcjob pair PC_ADDRESS [--os windows|linux|mac]   first time: check the PC's fingerprint, write ~/.ssh/config + config.json
   pcjob run DIR [--name N] [--timeout S] [--wait] [--fetch DEST] [--cheap]   send a job (wakes the PC)
   pcjob cheap                    the cheap-electricity hours (live prices if cheap_feed is set), and whether they're on now
-  pcjob status ID | list | log ID | wait ID [--max S] | fetch ID DEST | cancel ID | rm ID
+  pcjob status ID | list | log ID | wait ID [--max S] [--queue-max S] | fetch ID DEST | cancel ID | rm ID
   pcjob put FILE                 copy a big input onto the PC once (prints media:<name>)
   pcjob ping | info | wake | sleep | push-runner   (sleep refuses while someone is using the PC)
 
@@ -60,6 +60,7 @@ ROOT = CFG.get("pc_root", default_root(OS_NAME))
 SSH_USER = default_user(OS_NAME)
 q = shlex.quote
 SAFE_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
+QUEUE_MAX = 3 * 3600   # seconds a job may wait in the PC's queue (one job at a time) before wait gives up
 
 
 def set_os(os_name):
@@ -552,7 +553,7 @@ def cmd_run(a):
     on_pc(op_mark_ready, job_id, a.timeout)
     print(job_id)
     if a.wait or a.fetch:
-        st = cmd_wait(argparse.Namespace(id=job_id, max=a.timeout + 300))
+        st = cmd_wait(argparse.Namespace(id=job_id, max=a.timeout + 300, queue_max=getattr(a, "queue_max", QUEUE_MAX)))
         if a.fetch:
             cmd_fetch(argparse.Namespace(id=job_id, dest=a.fetch))
         if st["state"] != "done":
@@ -561,22 +562,45 @@ def cmd_run(a):
     return job_id
 
 
+def queue_ahead(job_id):
+    """How many queued or running jobs are ahead of job_id (the runner takes the oldest first, one at a time)."""
+    ahead = 0
+    for line in on_pc(op_list_jobs, check=False).splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == job_id:
+            return ahead
+        if len(parts) == 2 and parts[0] in ("queued", "running"):
+            ahead += 1
+    return ahead
+
+
 def cmd_wait(a):
+    """Waits for a job. --max limits the time it runs; the time it waits in the queue behind other jobs counts
+    against --queue-max instead (default QUEUE_MAX), so a job stuck behind a long render is not given up on while
+    it waits its turn (it used to be: the Mac stopped waiting, the job still ran later and nobody fetched it)."""
     ids_ok(a.id)
-    deadline = time.time() + a.max
+    queue_max = getattr(a, "queue_max", None) or QUEUE_MAX
+    started = time.time()
+    deadline = started + queue_max
     last = None
     while True:
         st = status(a.id)
-        if st["state"] != last:
-            print(f"{a.id}: {st['state']}")
-            last = st["state"]
+        label = st["state"]
+        if label == "queued":
+            label = f"queued, {queue_ahead(a.id)} job(s) ahead on the PC"
+        if label != last:
+            print(f"{a.id}: {label}", flush=True)
+            if st["state"] == "running" and (last is None or last.startswith("queued")):
+                deadline = time.time() + a.max   # the run limit starts when the job does
+            last = label
         if st["state"] not in ("queued", "running"):
             print(json.dumps(st, indent=1))
             if st["state"] != "done":
                 print(on_pc(op_err_tail, a.id, check=False))
             return st
         if time.time() > deadline:
-            sys.exit(f"pcjob: gave up waiting after {a.max}s; job still {st['state']} on the PC (pcjob status {a.id})")
+            limit = f"{queue_max}s in the queue" if st["state"] == "queued" else f"{a.max}s of running"
+            sys.exit(f"pcjob: gave up waiting after {limit}; job still {st['state']} on the PC (pcjob status {a.id})")
         time.sleep(10)
 
 
@@ -767,10 +791,12 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run"); r.add_argument("dir"); r.add_argument("--name"); r.add_argument("--timeout", type=int, default=3600)
     r.add_argument("--wait", action="store_true"); r.add_argument("--fetch", metavar="DEST")
+    r.add_argument("--queue-max", type=int, default=QUEUE_MAX, help="with --wait/--fetch: seconds to wait in the PC's queue")
     r.add_argument("--cheap", action="store_true", help="wait for the cheap-electricity hours in config.json first")
     for n in ("status", "log", "cancel", "rm"):
         sub.add_parser(n).add_argument("id")
-    w = sub.add_parser("wait"); w.add_argument("id"); w.add_argument("--max", type=int, default=7200)
+    w = sub.add_parser("wait"); w.add_argument("id"); w.add_argument("--max", type=int, default=7200, help="seconds of running")
+    w.add_argument("--queue-max", type=int, default=QUEUE_MAX, help="seconds of waiting in the queue first")
     f = sub.add_parser("fetch"); f.add_argument("id"); f.add_argument("dest")
     sub.add_parser("put").add_argument("file")
     for n in ("list", "ping", "info", "wake", "push-runner", "cheap"):

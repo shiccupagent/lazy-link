@@ -30,8 +30,8 @@ DIR gets <mesh>_lightmap.png (sRGB), <mesh>_lightmap.json ({mode, intensity, col
 <mesh>_ao.png (linear, R; hybrid only), manifest.json, <stem>_baked.glb (the bake layer is TEXCOORD_1),
 summary.json and blender.log. Options and their defaults: the header of pc/bake_blender.py.
 Unknown options are refused here, before anything is sent.
-A job that waits in the PC's queue is normal: bake waits up to --wait seconds (default 3 h, queue
-included), prints the queue position while it waits, then fetches the results.
+A job that waits in the PC's queue is normal: bake waits up to --wait seconds in the queue (default 3 h),
+prints how many jobs are ahead, then gives the run its own --timeout and fetches the results.
 """
 import argparse
 import importlib.util
@@ -39,13 +39,11 @@ import json
 import shutil
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_TIMEOUT = 1800       # PC-side Blender limit for one bake
-WAIT_LIMIT = 3 * 3600        # seconds bake waits for the PC (queue + run) before it gives up
-WAIT_POLL = 20               # seconds between PC status checks
+WAIT_LIMIT = 3 * 3600        # seconds bake waits in the PC's queue before it gives up (the run has its own --timeout)
 MODES = ("full", "hybrid")
 DEFAULT_MODE = "hybrid"
 OPTIONS = {"stem", "make_test_scene", "ceiling", "device", "budget", "margin", "samples", "lights",
@@ -71,43 +69,6 @@ def _imagegen():
     return mod
 
 
-def _job_queue(pc, job_id):
-    """One PC call: (state of job_id, jobs ahead of it). The PC runs one job at a time, oldest first, so
-    'ahead' counts the queued or running jobs listed before it. A job with no status.json is queued."""
-    ahead = 0
-    for line in pc.on_pc(pc.op_list_jobs).splitlines():
-        parts = line.split()   # op_list_jobs pads the state column, so split on any whitespace
-        if len(parts) != 2:
-            continue
-        state, name = parts
-        if name == job_id:
-            return state, ahead
-        if state in ("queued", "running"):
-            ahead += 1
-    return "missing", ahead
-
-
-def _wait_for_pc(pc, job_id, limit):
-    """Poll until the PC finishes job_id. The limit covers the queue and the run; the queue position is
-    printed each time it changes. Returns the final state ('done', 'failed', ...)."""
-    deadline = time.time() + limit
-    last, missing = None, 0
-    while True:
-        state, ahead = _job_queue(pc, job_id)
-        missing = missing + 1 if state == "missing" else 0
-        if missing >= 3:   # a status read can come back empty while the PC writes; three in a row is real
-            raise SystemExit(f"bake: job {job_id} is no longer on the PC")
-        label = f"queued, {ahead} job(s) ahead on the PC" if state == "queued" else state
-        if label != last:
-            print(f"{job_id}: {label}", flush=True)
-            last = label
-        if state not in ("queued", "running", "missing"):
-            return state
-        if time.time() > deadline:
-            raise SystemExit(f"bake: gave up after {limit} s; job {job_id} is still {state} on the PC")
-        time.sleep(WAIT_POLL)
-
-
 def _failure_reason(out):
     """The bake's own reason for failing, from summary.json (the PC side writes it before it fails), or None."""
     f = out / "summary.json"
@@ -124,10 +85,9 @@ def _failure_reason(out):
 
 
 def _submit(ig, files, ps1, out, timeout, wait):
-    """Send the bake job, wait for it (queue included, bounded by `wait` seconds), fetch the results into
-    `out`, and remove the PC job folder. If bake stops early, the job is dequeued (or cancelled while it
-    runs) so nothing is left behind. imagegen.send does not do that: its cmd_run stops waiting after
-    timeout+300 s while the job is still queued."""
+    """Send the bake job, wait for it (pcjob's wait: up to `wait` seconds in the queue, then the run's own
+    limit), fetch the results into `out`, and remove the PC job folder. If bake stops early, the job is
+    dequeued (or cancelled while it runs) so nothing is left behind."""
     pc = ig.load_pcjob()
     woke = pc.wake()
     job_id = None
@@ -142,7 +102,7 @@ def _submit(ig, files, ps1, out, timeout, wait):
             (job / "job.ps1").write_text(ps1)
             job_id = pc.cmd_run(argparse.Namespace(dir=str(job), name="bake", timeout=timeout,
                                                    wait=False, fetch=None))
-        state = _wait_for_pc(pc, job_id, wait)
+        state = pc.cmd_wait(argparse.Namespace(id=job_id, max=timeout + 300, queue_max=wait))["state"]
         pc.cmd_fetch(argparse.Namespace(id=job_id, dest=str(out)))   # log and blender.log come back even on failure
         pc.cmd_rm(argparse.Namespace(id=job_id))
         job_id = None
@@ -150,7 +110,7 @@ def _submit(ig, files, ps1, out, timeout, wait):
             sys.exit(_failure_reason(out) or f"bake: the PC job ended as {state}; see {out / 'blender.log'}")
     finally:
         if job_id is not None:   # stopped early: take our own job off the queue, or cancel it if it runs
-            state = _job_queue(pc, job_id)[0]
+            state = pc.status(job_id)["state"]
             if state == "queued":
                 pc.cmd_rm(argparse.Namespace(id=job_id))
                 print(f"bake: {job_id} removed from the PC queue", flush=True)
@@ -225,7 +185,7 @@ def main():
                          "full: direct + indirect light map, no realtime lights, no aoMap")
     ap.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="PC-side limit for the bake, seconds")
     ap.add_argument("--wait", type=int, default=WAIT_LIMIT,
-                    help="how long to wait for the PC, queue included, seconds (default 3 h)")
+                    help="how long to wait in the PC's queue, seconds (default 3 h)")
     ap.add_argument("--opt", action="append", default=[], metavar="KEY=VALUE",
                     help="one bake option, e.g. --opt budget=2048 (JSON values; others are strings)")
     a = ap.parse_args()
