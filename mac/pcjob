@@ -20,11 +20,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
-CONFIG = Path(os.environ.get("RENDER_LINK_CONFIG", REPO / "config.json"))
-KEY = Path.home() / ".ssh" / "render-link"
-KNOWN = Path.home() / ".ssh" / "known_hosts_render_link"
+CONFIG = Path(os.environ.get("LAZY_LINK_CONFIG", REPO / "config.json"))
+KEY = Path.home() / ".ssh" / "lazy-link"
+KNOWN = Path.home() / ".ssh" / "known_hosts_lazy_link"
+if not KEY.exists() and (Path.home() / ".ssh" / "render-link").exists():   # the name before 2026-10-29
+    KEY, KNOWN = Path.home() / ".ssh" / "render-link", Path.home() / ".ssh" / "known_hosts_render_link"
 CFG = json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
-HOST = CFG.get("ssh_host", "render-pc")
+HOST = CFG.get("ssh_host", "lazy-pc")
 ROOT = CFG.get("pc_root", "C:/render")
 
 

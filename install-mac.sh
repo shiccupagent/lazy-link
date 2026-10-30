@@ -1,5 +1,5 @@
 #!/bin/bash
-# install-mac.sh - the Mac half of render-link setup. Safe to run again.
+# install-mac.sh - the Mac half of Lazy Link setup. Safe to run again.
 # Makes the Mac's own SSH key for the PC link, puts the public half where the PC setup finds it,
 # and tells you the next step. Nothing is sent anywhere.
 set -euo pipefail
@@ -8,10 +8,12 @@ cd "$(dirname "$0")"
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' 2>/dev/null || {
   echo "Needs python3 3.9 or newer. Run: xcode-select --install   (then run this again)"; exit 1; }
 
-KEY="$HOME/.ssh/render-link"
+KEY="$HOME/.ssh/lazy-link"
 mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+OLD="$HOME/.ssh/render-link"   # the name before 2026-10-29: keep using that key
+if [ ! -f "$KEY" ] && [ -f "$OLD" ]; then mv "$OLD" "$KEY" && mv "$OLD.pub" "$KEY.pub"; fi
 if [ ! -f "$KEY" ]; then
-  ssh-keygen -q -t ed25519 -N "" -C "render-link" -f "$KEY"
+  ssh-keygen -q -t ed25519 -N "" -C "lazy-link" -f "$KEY"
   echo "Made a new key for the PC link: $KEY (it never leaves this Mac)"
 else
   echo "Key already there: $KEY"

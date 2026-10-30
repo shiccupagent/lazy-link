@@ -1,4 +1,4 @@
-# render-link: notes for Claude Code
+# Lazy Link: notes for Claude Code
 
 This repo lets you (Claude, on the Mac) run AI jobs on the user's Windows PC GPU. Setup steps: README.md.
 

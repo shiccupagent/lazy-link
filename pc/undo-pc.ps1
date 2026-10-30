@@ -11,17 +11,21 @@ param([switch]$RemoveWorkFolder, [switch]$RemoveOpenSSH, [string]$WorkRoot = 'C:
 $ErrorActionPreference = 'Continue'
 $SshDir = Join-Path $env:ProgramData 'ssh'
 
+# Before 2026-10-29 this project was called render-link: its names are undone too.
 $state = $null
-$stateFile = Join-Path $SshDir 'render-link-state.json'
+$stateFile = Join-Path $SshDir 'lazy-link-state.json'
+if (-not (Test-Path $stateFile)) { $stateFile = Join-Path $SshDir 'render-link-state.json' }
 if (Test-Path $stateFile) { $state = Get-Content $stateFile -Raw | ConvertFrom-Json }
-if (Get-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -ErrorAction SilentlyContinue) {
-    Stop-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -Confirm:$false
-    Write-Host 'job runner task removed'
+foreach ($t in @(@('LazyRunner', '\LazyLink\'), @('RenderRunner', '\RenderLink\'))) {
+    if (Get-ScheduledTask -TaskName $t[0] -TaskPath $t[1] -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName $t[0] -TaskPath $t[1] -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName $t[0] -TaskPath $t[1] -Confirm:$false
+        Write-Host 'job runner task removed'
+    }
 }
 $acctSid = (Get-LocalUser -Name render -ErrorAction SilentlyContinue).SID.Value
 if ($acctSid) {   # take back 'Log on as a batch job' (setup-pc.ps1 granted it)
-    $sec = Join-Path $env:TEMP 'renderlink-sec'
+    $sec = Join-Path $env:TEMP 'lazylink-sec'
     secedit /export /cfg "$sec.inf" /areas USER_RIGHTS | Out-Null
     $line = Get-Content "$sec.inf" | Where-Object { $_ -like 'SeBatchLogonRight*' }
     if ($line -and $line -match [regex]::Escape($acctSid)) {
@@ -36,11 +40,12 @@ if ($acctSid) {   # take back 'Log on as a batch job' (setup-pc.ps1 granted it)
 Stop-Service sshd -ErrorAction SilentlyContinue
 Set-Service sshd -StartupType $(if ($state) { $state.sshdStartup } else { 'Manual' }) -ErrorAction SilentlyContinue
 if ($state -and $state.builtinRuleEnabled) { Enable-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue }
-$backup = Join-Path $SshDir 'sshd_config.before-render-link'
+$backup = Join-Path $SshDir 'sshd_config.before-lazy-link'
+if (-not (Test-Path $backup)) { $backup = Join-Path $SshDir 'sshd_config.before-render-link' }
 if (Test-Path $backup) { Move-Item $backup (Join-Path $SshDir 'sshd_config') -Force; Write-Host 'original sshd_config restored' }
 Remove-Item (Join-Path $SshDir 'render_authorized_keys') -ErrorAction SilentlyContinue
 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -ErrorAction SilentlyContinue
-Get-NetFirewallRule -Name 'RenderLink-SSH' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+Get-NetFirewallRule -Name 'LazyLink-SSH', 'RenderLink-SSH' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList' -Name render -ErrorAction SilentlyContinue
 $acct = Get-LocalUser -Name render -ErrorAction SilentlyContinue
 if ($acct) {
@@ -56,4 +61,4 @@ if ($RemoveOpenSSH) {
     Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*' | Remove-WindowsCapability -Online | Out-Null
     Write-Host 'OpenSSH Server removed'
 }
-Write-Host 'Render link removed.'
+Write-Host 'Lazy Link removed.'

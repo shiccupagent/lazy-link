@@ -30,7 +30,7 @@ $SshDir = Join-Path $env:ProgramData 'ssh'
 $Sshd = Join-Path $env:WINDIR 'System32\OpenSSH\sshd.exe'
 $KeysFile = Join-Path $SshDir 'render_authorized_keys'
 $Config = Join-Path $SshDir 'sshd_config'
-$Backup = Join-Path $SshDir 'sshd_config.before-render-link'
+$Backup = Join-Path $SshDir 'sshd_config.before-lazy-link'
 $SidSystem = '*S-1-5-18'; $SidAdmins = '*S-1-5-32-544'; $SidUsers = 'S-1-5-32-545'
 
 function Note([string]$m) { Write-Host $m }
@@ -44,7 +44,19 @@ function New-Password {
     (-join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })) + 'aA1!'
 }
 
-Note "render-link setup$(if ($DryRun) {' (DRY RUN)'})"
+Note "Lazy Link setup$(if ($DryRun) {' (DRY RUN)'})"
+# Before 2026-10-29 this project was called render-link: carry its files and names over.
+if (-not $DryRun) {
+    foreach ($pair in @(@('sshd_config.before-render-link', $Backup), @('render-link-state.json', 'lazy-link-state.json'))) {
+        $old = Join-Path $SshDir $pair[0]; $new = Join-Path $SshDir $pair[1]
+        if ((Test-Path $old) -and -not (Test-Path $new)) { Move-Item $old $new }
+    }
+    if (Get-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -ErrorAction SilentlyContinue
+        Unregister-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -Confirm:$false
+    }
+    Get-NetFirewallRule -Name 'RenderLink-SSH' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+}
 # Files from a downloaded zip carry a "came from the internet" mark that can block them.
 Get-ChildItem $PSScriptRoot -File | Unblock-File -ErrorAction SilentlyContinue
 
@@ -72,7 +84,7 @@ if (-not $DryRun -and -not (Test-Path (Join-Path $SshDir 'ssh_host_ed25519_key.p
 }
 
 # What the PC had before, so undo-pc.ps1 can put it back exactly.
-$StateFile = Join-Path $SshDir 'render-link-state.json'
+$StateFile = Join-Path $SshDir 'lazy-link-state.json'
 if (-not $DryRun -and -not (Test-Path $StateFile)) {
     $rule = Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue
     $svc = Get-Service sshd -ErrorAction SilentlyContinue
@@ -87,7 +99,7 @@ $pw = New-Password
 if (-not (Get-LocalUser -Name $User -ErrorAction SilentlyContinue)) {
     Step "create hidden standard account '$User'" {
         New-LocalUser -Name $User -Password (ConvertTo-SecureString $pw -AsPlainText -Force) -PasswordNeverExpires `
-            -AccountNeverExpires -UserMayNotChangePassword -Description 'render-link jobs (SSH key only)' | Out-Null
+            -AccountNeverExpires -UserMayNotChangePassword -Description 'Lazy Link jobs (SSH key only)' | Out-Null
         Add-LocalGroupMember -SID $SidUsers -Member $User
     }
 } else {
@@ -113,7 +125,7 @@ Step "allow only the Mac's key for '$User'" {
 Step 'write sshd_config: key-only, only render may log in (old one backed up)' {
     if ((Test-Path $Config) -and -not (Test-Path $Backup)) { Copy-Item $Config $Backup }
     @(
-        '# Written by render-link setup-pc.ps1. Original: sshd_config.before-render-link',
+        '# Written by Lazy Link setup-pc.ps1. Original: sshd_config.before-lazy-link',
         'Port 22',
         'PubkeyAuthentication yes',
         'PasswordAuthentication no',
@@ -142,8 +154,8 @@ Step 'make PowerShell the SSH shell' {
 # 4. Firewall ------------------------------------------------------------------------------------
 Step 'firewall: port 22 on Private networks, from this home network only' {
     Get-NetFirewallRule -Name 'OpenSSH-Server-In-TCP' -ErrorAction SilentlyContinue | Disable-NetFirewallRule
-    Get-NetFirewallRule -Name 'RenderLink-SSH' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-    New-NetFirewallRule -Name 'RenderLink-SSH' -DisplayName 'render-link SSH (home network only)' `
+    Get-NetFirewallRule -Name 'LazyLink-SSH' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
+    New-NetFirewallRule -Name 'LazyLink-SSH' -DisplayName 'Lazy Link SSH (home network only)' `
         -Direction Inbound -Protocol TCP -LocalPort 22 -Program $Sshd -Profile Private `
         -RemoteAddress LocalSubnet -Action Allow | Out-Null
 }
@@ -162,7 +174,7 @@ $Runner = Join-Path $WorkRoot 'runner\runner.ps1'
 Step 'copy the job runner' { Copy-Item (Join-Path $PSScriptRoot 'runner.ps1') $Runner -Force }
 Step "grant render 'Log on as a batch job' (a scheduled task needs it)" {
     $sid = (Get-LocalUser -Name $User).SID.Value
-    $sec = Join-Path $env:TEMP 'renderlink-sec'
+    $sec = Join-Path $env:TEMP 'lazylink-sec'
     secedit /export /cfg "$sec.inf" /areas USER_RIGHTS | Out-Null
     $line = Get-Content "$sec.inf" | Where-Object { $_ -like 'SeBatchLogonRight*' }
     if (-not $line -or $line -notmatch [regex]::Escape($sid)) {
@@ -173,7 +185,7 @@ Step "grant render 'Log on as a batch job' (a scheduled task needs it)" {
     }
     Remove-Item "$sec*" -ErrorAction SilentlyContinue
 }
-Step 'register the scheduled task RenderLink\RenderRunner (runs as render, from boot)' {
+Step 'register the scheduled task LazyLink\LazyRunner (runs as render, from boot)' {
     $ps = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
     $loop = "while (`$true) { & '$ps' -NoProfile -ExecutionPolicy Bypass -File '$Runner'; Start-Sleep 5 }"
     $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($loop))
@@ -182,10 +194,10 @@ Step 'register the scheduled task RenderLink\RenderRunner (runs as render, from 
     $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -MultipleInstances IgnoreNew
     # A password task, not S4U: S4U registration is refused on some PCs (0x80070005 even as admin).
-    Register-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -Action $action -Trigger $trigger `
+    Register-ScheduledTask -TaskName LazyRunner -TaskPath '\LazyLink\' -Action $action -Trigger $trigger `
         -Settings $settings -User "$env:COMPUTERNAME\$User" -Password $pw -RunLevel Limited -Force | Out-Null
-    Stop-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\' -ErrorAction SilentlyContinue
-    Start-ScheduledTask -TaskName RenderRunner -TaskPath '\RenderLink\'
+    Stop-ScheduledTask -TaskName LazyRunner -TaskPath '\LazyLink\' -ErrorAction SilentlyContinue
+    Start-ScheduledTask -TaskName LazyRunner -TaskPath '\LazyLink\'
 }
 $pw = $null
 
@@ -207,7 +219,7 @@ $beat = Join-Path $WorkRoot 'runner.heartbeat'
 $ok = $false
 for ($i = 0; $i -lt 15 -and -not $ok; $i++) { Start-Sleep 2; $ok = (Test-Path $beat) -and ((Get-Date) - (Get-Item $beat).LastWriteTime).TotalSeconds -lt 30 }
 if ($ok) { Write-Host 'Job runner: running' -ForegroundColor Green }
-else { Write-Host "Job runner: NOT running yet (last result $((Get-ScheduledTaskInfo -TaskName RenderRunner -TaskPath '\RenderLink\').LastTaskResult)). See docs/TROUBLESHOOTING.md." -ForegroundColor Red }
+else { Write-Host "Job runner: NOT running yet (last result $((Get-ScheduledTaskInfo -TaskName LazyRunner -TaskPath '\LazyLink\').LastTaskResult)). See docs/TROUBLESHOOTING.md." -ForegroundColor Red }
 
 $info = [ordered]@{ networks = @(); fingerprint = ''; gpu = ''; fast_startup = $false; disks = @() }
 Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq 'Up' } | ForEach-Object {

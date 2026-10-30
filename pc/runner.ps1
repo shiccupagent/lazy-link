@@ -1,6 +1,6 @@
 <#
 runner.ps1 - the PC job runner. setup-pc.ps1 copies it to C:\render\runner\runner.ps1 and runs it
-as the hidden 'render' account from the RenderLink\RenderRunner scheduled task, outside any SSH
+as the hidden 'render' account from the LazyLink\LazyRunner scheduled task, outside any SSH
 session, so a dropped link never kills a job.
 
 A job is a folder C:\render\jobs\<id>\ that the Mac fills (mac/pcjob):
@@ -39,7 +39,7 @@ if ($bl) { $env:BLENDER = $bl.FullName }
 # dies takes its job with it instead of leaving an orphan holding the GPU.
 Add-Type -TypeDefinition @'
 using System; using System.Runtime.InteropServices;
-namespace RenderLink {
+namespace LazyLink {
 public static class Native {
     [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr attrs, string name);
@@ -108,16 +108,16 @@ function Invoke-Job($dir) {
             -RedirectStandardOutput (Join-Path $dir 'log.txt') -RedirectStandardError (Join-Path $dir 'err.txt')
         # Assigned right after start: powershell.exe takes far longer to load than this, so
         # job.ps1 cannot have started a child outside the job object yet.
-        $jobObj = [RenderLink.Native]::NewKillOnCloseJob()
-        [RenderLink.Native]::Assign($jobObj, $p.Handle)   # reading Handle also keeps the exit code readable
+        $jobObj = [LazyLink.Native]::NewKillOnCloseJob()
+        [LazyLink.Native]::Assign($jobObj, $p.Handle)   # reading Handle also keeps the exit code readable
         $st.pid = $p.Id; Set-Status $dir $st
-        [void][RenderLink.Native]::SetThreadExecutionState($AWAKE)
+        [void][LazyLink.Native]::SetThreadExecutionState($AWAKE)
         $end = 'done'
         while (-not $p.WaitForExit(2000)) {
             Set-Content $Beat (Get-Date -Format o)
             $why = if (Test-Path (Join-Path $dir 'cancel')) { 'cancelled' } elseif ($clock.Elapsed.TotalSeconds -gt $timeout) { 'timeout' }
             if ($why) {
-                [void][RenderLink.Native]::Kill($jobObj)
+                [void][LazyLink.Native]::Kill($jobObj)
                 $p.WaitForExit(10000) | Out-Null
                 $end = $why; break
             }
@@ -127,9 +127,9 @@ function Invoke-Job($dir) {
     } catch {
         $end = 'failed'; $st.error = "$_"
     } finally {
-        [void][RenderLink.Native]::SetThreadExecutionState($RELEASE)
+        [void][LazyLink.Native]::SetThreadExecutionState($RELEASE)
         # Closing the job object also ends anything job.ps1 left running in the background.
-        if ($jobObj -ne [IntPtr]::Zero) { [void][RenderLink.Native]::CloseHandle($jobObj) }
+        if ($jobObj -ne [IntPtr]::Zero) { [void][LazyLink.Native]::CloseHandle($jobObj) }
     }
     if ((Invoke-Native $Tar -cf (Join-Path $dir 'out.tar') -C $out .) -ne 0) { $st.error = "$($st.error) packing out.tar failed".Trim() }
     $st.state = $end; $st.seconds = [math]::Round($clock.Elapsed.TotalSeconds, 1); $st.ended = Get-Date -Format o

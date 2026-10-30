@@ -1,4 +1,7 @@
-# render-link
+# Lazy Link
+
+**Use your big gaming PC lazily, from your small nice computer.** It wakes up, does the heavy lifting,
+and goes back to sleep.
 
 Let Claude Code on your Mac use your Windows gaming PC's NVIDIA graphics card for local AI:
 **images, sound effects and music, 3D models, a chat model, and speech-to-text.**
@@ -83,7 +86,7 @@ against its size and sha256 before use. This repo's own code is MIT.
 
 ## Support this project
 
-render-link is free and stays free (MIT). If it saves you money or time, you can chip in through
+Lazy Link is free and stays free (MIT). If it saves you money or time, you can chip in through
 [GitHub Sponsors](https://github.com/sponsors/shiccupagent), once or monthly, any amount.
 Personal sponsorships go 100% to the project. Thank you!
 

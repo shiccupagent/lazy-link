@@ -2,11 +2,11 @@
 # privacy-scan.sh - run before every commit/push. Fails if a file that git would publish contains
 # something personal: IP or MAC addresses (other than the documented examples), emails, home-folder
 # paths, keys or tokens, or any word in your own private list (one per line, outside the repo):
-#   ~/.config/render-link/private-words.txt   e.g. your name, PC name, Windows account, Wi-Fi name
+#   ~/.config/lazy-link/private-words.txt   e.g. your name, PC name, Windows account, Wi-Fi name
 # Usage: tools/privacy-scan.sh [extra files or folders to scan, e.g. video frames' text]
 set -uo pipefail
 cd "$(dirname "$0")/.."
-WORDS="${RENDER_LINK_PRIVATE_WORDS:-$HOME/.config/render-link/private-words.txt}"
+WORDS="${LAZY_LINK_PRIVATE_WORDS:-$HOME/.config/lazy-link/private-words.txt}"
 files=$( { git ls-files; git ls-files --others --exclude-standard; } | sort -u)
 [ $# -gt 0 ] && files="$files"$'\n'"$(find "$@" -type f)"
 fail=0

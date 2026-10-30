@@ -30,7 +30,9 @@ $env:UV_CACHE_DIR = Join-Path $root 'tmp\uv-cache'
 
 # 2. ComfyUI source at the pinned tag (a zip from GitHub: no git needed)
 $comfy = Join-Path $root $c.dir
-$stamp = Join-Path $comfy '.render-link-version'
+$stamp = Join-Path $comfy '.lazy-link-version'
+$oldStamp = Join-Path $comfy '.render-link-version'   # the name before 2026-10-29
+if ((Test-Path $oldStamp) -and -not (Test-Path $stamp)) { Move-Item $oldStamp $stamp }
 if (-not (Test-Path $stamp) -or (Get-Content $stamp -Raw).Trim() -ne $c.version) {
     "get ComfyUI $($c.version)"
     $zip = Join-Path $dl "ComfyUI-$($c.version).zip"
@@ -57,7 +59,7 @@ Run $uv pip install --python $py -r (Join-Path $comfy 'requirements.txt')
 # 4. Where ComfyUI looks for models
 $lib = Join-Path $root $m.library
 $extra = if (Test-Path link.json) { (Get-Content link.json -Raw | ConvertFrom-Json).extra_model_folders } else { $null }
-$yaml = "render_link:`n"
+$yaml = "lazy_link:`n"
 foreach ($kind in $m.model_kinds) {
     New-Item -ItemType Directory -Force (Join-Path $lib $kind) | Out-Null
     $yaml += "  ${kind}: |-`n    $(Join-Path $lib $kind)`n"
