@@ -109,7 +109,13 @@ function Remove-LegacyAccount {
 Note "Lazy Link setup$(if ($DryRun) {' (DRY RUN)'})"
 # 0. The Mac's public key ------------------------------------------------------------------
 if (Test-Path $MacKeyFile) { $MacKey = (Get-Content $MacKeyFile -Raw).Trim() }
-else {
+elseif ((Test-Path $KeysFile) -or (Test-Path $LegacyKeysFile)) {
+    # Re-run or upgrade: keep the Mac key this PC already trusts (an older install kept it in render_authorized_keys).
+    $have = if (Test-Path $KeysFile) { $KeysFile } else { $LegacyKeysFile }
+    $MacKey = (Get-Content $have | Where-Object { $_ -like 'ssh-ed25519 *' } | Select-Object -First 1)
+    if ($MacKey) { $MacKey = $MacKey.Trim(); Note "Using the Mac key this PC already trusts ($(Split-Path -Leaf $have))." }
+}
+if (-not $MacKey) {
     Note ''
     Note 'Paste the line your Mac printed (it starts with ssh-ed25519), then press Enter:'
     $MacKey = (Read-Host).Trim()
