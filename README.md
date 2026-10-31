@@ -217,6 +217,12 @@ In Northern Illinois (ComEd) or on the UK's Octopus Agile tariff, `"cheap_feed":
 `{"source": "octopus", "region": "C"}` picks the cheapest 6 hours of each day from the utility's free live
 price feed instead. Keep `cheap_hours` set too: it is used if the feed is down.
 
+## Leave the PC alone for a while (optional)
+Hibernating the PC overnight, or playing a game on it? `./mac/pcjob quiet 09:15` keeps every tool off it until then:
+`pcjob run` (and so every imagegen, local and voice command) waits and sends at 09:15; every other PC command stops
+with exit code 75 ("try later") without touching the network, so not even a quick check wakes the PC.
+`./mac/pcjob quiet` shows the hold, `./mac/pcjob quiet off` lifts it early.
+
 Installed before 2026-10-30? Re-run Setup-PC; it renames `render` to `lazylink` and keeps your models. Then pair again from the Mac.
 
 ## Safety, in plain words

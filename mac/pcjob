@@ -15,6 +15,8 @@ the Mac sleeping never kills a job.
   pcjob status ID | list | log ID | wait ID [--max S] [--queue-max S] | fetch ID DEST | cancel ID | rm ID
   pcjob put FILE                 copy a big input onto the PC once (prints media:<name>)
   pcjob ping | info | wake | sleep | push-runner   (sleep refuses while someone is using the PC)
+  pcjob quiet [HH:MM | YYYY-MM-DDTHH:MM | off]   leave the PC alone until then (an overnight hibernate): run waits,
+                                 every other command that would reach the PC refuses with exit 75
 
 Every remote step is a named operation below with two strings: the PowerShell one (Windows)
 and the sh one (Linux and Mac). pc_os in config.json picks which one runs.
@@ -22,7 +24,7 @@ Settings: config.json beside this repo's README (made by `pcjob pair`; see confi
 """
 import argparse, base64, hashlib, ipaddress, json, os, re, shlex, socket, subprocess, sys, tarfile, tempfile, time
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -60,6 +62,7 @@ ROOT = CFG.get("pc_root", default_root(OS_NAME))
 SSH_USER = default_user(OS_NAME)
 q = shlex.quote
 SAFE_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
+QUIET = Path(os.environ.get("LAZY_LINK_QUIET", REPO / ".quiet-until"))   # pcjob quiet: one local time, no ssh before it
 QUEUE_MAX = 3 * 3600   # seconds a job may wait in the PC's queue (one job at a time) before wait gives up
 
 
@@ -84,7 +87,22 @@ def iso_now():
     return "date +%Y-%m-%dT%H:%M:%S%z" if MAC else "date -Iseconds"
 
 
+def quiet_until():
+    """The end of a `pcjob quiet` hold (this computer's clock), or None. A passed or unreadable hold is no hold."""
+    try:
+        t = datetime.fromisoformat(QUIET.read_text().strip())
+    except (OSError, ValueError):
+        return None
+    return t if t > datetime.now() else None
+
+
 def need_config():
+    # every ssh, scp and wake goes through here: even a quick check can wake a hibernating PC
+    t = quiet_until()
+    if t:
+        print(f"pcjob: the PC is left alone until {t:%Y-%m-%d %H:%M} (pcjob quiet; `pcjob quiet off` lifts it). "
+              "Try again after that.", file=sys.stderr)
+        sys.exit(75)
     if not CFG.get("pc_address"):
         sys.exit(f"pcjob: not paired yet ({CONFIG} missing). Run ./install-mac.sh, set up the PC, then: pcjob pair PC_ADDRESS")
 
@@ -532,6 +550,11 @@ def cmd_run(a):
     if not (src / script).is_file():
         sys.exit(f"pcjob: {src}/{script} not found (this PC runs {OS_LABEL[OS_NAME]} jobs: they need a {script})")
     name = "".join(c if c.isalnum() or c in "-_" else "-" for c in (a.name or src.name))[:40]
+    t = quiet_until()
+    if t:
+        print(f"pcjob: holding until {t:%H:%M} (pcjob quiet), then sending", flush=True)
+        while quiet_until():
+            time.sleep(30)
     wait_for_cheap(getattr(a, "cheap", False))
     job_id = time.strftime("%Y%m%d-%H%M%S-") + name
     wake()
@@ -737,6 +760,30 @@ def cmd_info(a):
     print(on_pc(op_info))
 
 
+def cmd_quiet(a):
+    if a.until == "off":
+        QUIET.unlink(missing_ok=True)
+        print("quiet hold lifted")
+        return
+    if a.until:
+        now = datetime.now()
+        try:
+            if "T" in a.until:
+                t = datetime.fromisoformat(a.until)
+            else:
+                h, m = (int(x) for x in a.until.split(":"))
+                t = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                if t <= now:
+                    t += timedelta(days=1)
+        except ValueError:
+            sys.exit(f"pcjob: quiet takes HH:MM, YYYY-MM-DDTHH:MM or off, not {a.until!r}")
+        if t <= now:
+            sys.exit(f"pcjob: {t:%Y-%m-%d %H:%M} has already passed")
+        QUIET.write_text(t.isoformat(timespec="minutes") + "\n")
+    t = quiet_until()
+    print(f"PC left alone until {t:%Y-%m-%d %H:%M}: run waits, other PC commands refuse (exit 75)" if t else "no quiet hold")
+
+
 def cmd_pair(a):
     """First contact: show the PC's SSH fingerprint (compare it with the PC's screen), then write an
     ~/.ssh/config entry that only ever uses our own key and our own pinned host key."""
@@ -799,6 +846,7 @@ def main():
     w.add_argument("--queue-max", type=int, default=QUEUE_MAX, help="seconds of waiting in the queue first")
     f = sub.add_parser("fetch"); f.add_argument("id"); f.add_argument("dest")
     sub.add_parser("put").add_argument("file")
+    sub.add_parser("quiet").add_argument("until", nargs="?", help="HH:MM (next one), YYYY-MM-DDTHH:MM, or off")
     for n in ("list", "ping", "info", "wake", "push-runner", "cheap"):
         sub.add_parser(n)
     pr = sub.add_parser("pair"); pr.add_argument("address"); pr.add_argument("--yes", action="store_true", help="skip the fingerprint question")
@@ -828,7 +876,7 @@ def main():
     else:
         {"run": cmd_run, "status": cmd_status, "list": cmd_list, "log": cmd_log, "wait": cmd_wait,
          "fetch": cmd_fetch, "cancel": cmd_cancel, "rm": cmd_rm, "sleep": cmd_sleep, "put": cmd_put, "push-runner": cmd_push_runner,
-         "pair": cmd_pair, "info": cmd_info}[a.cmd](a)
+         "pair": cmd_pair, "info": cmd_info, "quiet": cmd_quiet}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -12,3 +12,4 @@ imagegen/watch-seen.json
 voice/recordings/
 voice/refs/
 out/
+.quiet-until
