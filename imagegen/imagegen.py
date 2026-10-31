@@ -151,6 +151,7 @@ def main():
     bp.add_argument("--object", action="store_true", help="objects or whole scenes (sprites, paintings): keep the whole shape; normal only")
     bp.add_argument("--plain", action="store_true", help="with --object: take the colours out first, so paint colour reads as no shape")
     bp.add_argument("--slope", type=float, help="steepen flat normal maps to this mean slope, e.g. 0.35 (never flattens; gain at most 8x)")
+    bp.add_argument("--highpass", type=float, metavar="R", help="take out waves wider than R px (e.g. 16 on a 1K tile): keeps grain and seams, drops broad relief; height and AO follow")
     tl = sub.add_parser("tile", help="seamless copies of surface pictures (tiles.py); needs numpy, scipy and Pillow here")
     tl.add_argument("pictures", nargs="+"); tl.add_argument("--out", required=True)
     tl.add_argument("--overlap", type=float, help="share laid over itself to find the cut (tiles.OVERLAP)")
@@ -199,6 +200,8 @@ def main():
             sys.exit("imagegen bump: --tile is for surfaces, --object for objects; pick one")
         if a.slope and a.object:
             sys.exit("imagegen bump: --slope is for surfaces (an object's flat background would skew it)")
+        if a.highpass is not None and (a.object or not 0 < a.highpass <= 512):
+            sys.exit("imagegen bump: --highpass is a radius in px from 0 to 512, for surfaces (an object's broad tilt is its shape)")
         with tempfile.TemporaryDirectory() as td:
             asks = Path(td) / "asks.json"
             names = []   # (name in asks.json, file in the job folder)
@@ -224,9 +227,9 @@ def main():
                     print(f"bump: {out / (f.stem + '_normal.png')}")
                     continue
                 if a.tile:
-                    before, after = bumpmaps.finish_tiled(f, {k: m / f"{f.stem}{k}__maps.png" for k in bumpmaps.SHIFTS}, out, f.stem, a.slope)
+                    before, after = bumpmaps.finish_tiled(f, {k: m / f"{f.stem}{k}__maps.png" for k in bumpmaps.SHIFTS}, out, f.stem, a.slope, a.highpass)
                 else:
-                    before, after = bumpmaps.finish(f, own, out, f.stem, a.slope)
+                    before, after = bumpmaps.finish(f, own, out, f.stem, a.slope, a.highpass)
                 slope = f"slope {before:.2f}" + (f" -> {after:.2f}" if abs(after - before) > 0.005 else "")
                 print(f"bump: {out / (f.stem + '_normal.png')} (+ _height, _ao)  {slope}")
                 if after < bumpmaps.SLOPE_LOW:

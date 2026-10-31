@@ -13,7 +13,7 @@ the picture moved by half across, down and both (SHIFTS), using each where its o
 Objects and whole scenes (a car sprite, a room painting) use prep_object() + finish_object() (`bump --object`): there the
 broad tilt IS the shape, so MoGe's whole normal is kept.
 Normal maps are OpenGL (+Y up), as three.js and glTF expect; load them (and AO) with colorSpace = NoColorSpace.
-`imagegen.py bump PICTURE... --out DIR [--tile]` runs the whole thing: DIR/<name>_normal.png, _height.png and _ao.png."""
+`imagegen.py bump PICTURE... --out DIR [--tile] [--slope S] [--highpass R]` runs the whole thing: DIR/<name>_normal.png, _height.png and _ao.png."""
 import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter, sobel
@@ -101,6 +101,18 @@ def mean_slope(n):
     return float(np.mean(np.hypot(n[..., 0], n[..., 1]) / np.clip(n[..., 2], 1e-3, None)))
 
 
+def highpass_normal(n, radius, mode="nearest"):
+    """n with the waves wider than `radius` px taken out (bump --highpass): its slopes (x/z, y/z) minus their Gaussian
+    blur (sigma = radius), made back into unit normals. Slopes rather than raw xy, because a slope is the height's own
+    derivative: this is exactly a high-pass of the surface, so the height and AO integrated from it agree with it.
+    Grain, seams and edges stay; broad MoGe relief (a varnished floor reading as crumpled foil) goes."""
+    nz = np.maximum(n[..., 2], 0.2)
+    p, q = n[..., 0] / nz, n[..., 1] / nz
+    p = p - gaussian_filter(p, radius, mode=mode)
+    q = q - gaussian_filter(q, radius, mode=mode)
+    return unit(np.dstack([p, q, np.ones_like(p)]))
+
+
 def steepen(n, target):
     """n with its xy scaled so the mean slope reaches target (raised only, gain at most SLOPE_GAIN_MAX). Per pixel,
     so a wrapping map still wraps."""
@@ -109,9 +121,12 @@ def steepen(n, target):
     return n if g <= 1 else unit(n * [g, g, 1])
 
 
-def write(cn, moge_n, out_dir, name, mode, slope=None):
-    """Returns the normal map's mean slope (before, after --slope)."""
+def write(cn, moge_n, out_dir, name, mode, slope=None, highpass=None):
+    """Returns the normal map's mean slope (before, after --slope). highpass: bump --highpass radius in px, applied
+    first, so the height and AO come from the high-passed normal."""
     n = combo(moge_detail(moge_n, mode), cn)
+    if highpass:
+        n = highpass_normal(n, highpass, mode)
     before = mean_slope(n)
     height = high_pass(height_from_normal(n, mode == "wrap"), 32, mode)   # before --slope: the same shape either way
     if slope:
@@ -122,10 +137,10 @@ def write(cn, moge_n, out_dir, name, mode, slope=None):
     return before, mean_slope(n)
 
 
-def finish(picture, moge_normal_png, out_dir, name, slope=None):
+def finish(picture, moge_normal_png, out_dir, name, slope=None, highpass=None):
     """Writes out_dir/<name>_normal.png (the default style), _height.png (integrated from it, detail only) and _ao.png."""
     _, cn = classic(load(picture))
-    return write(cn, load(moge_normal_png) * 2 - 1, out_dir, name, "nearest", slope)
+    return write(cn, load(moge_normal_png) * 2 - 1, out_dir, name, "nearest", slope, highpass)
 
 
 SHIFTS = {"": (0, 0), "__sx": (0, 1), "__sy": (1, 0), "__sxy": (1, 1)}   # bump --tile: the picture moved by half (rows, columns)
@@ -137,7 +152,7 @@ def shifted(a, sy, sx, back=False):
     return np.roll(a, (d * sy * (h // 2), d * sx * (w // 2)), axis=(0, 1))
 
 
-def finish_tiled(picture, maps, out_dir, name, slope=None):
+def finish_tiled(picture, maps, out_dir, name, slope=None, highpass=None):
     """Like finish() for a seamless texture. maps[key] = MoGe's normal png for the picture moved by half as
     SHIFTS[key] says: each run is wrong near its own edges, so every spot is taken from the runs where it sits far
     from an edge (weight sin^2 of the position per axis: 1 in the middle, 0 at the edges; the moved run gets cos^2,
@@ -151,7 +166,7 @@ def finish_tiled(picture, maps, out_dir, name, slope=None):
         ay, ax = np.sin(np.pi * (np.arange(h) + 0.5) / h) ** 2, np.sin(np.pi * (np.arange(w) + 0.5) / w) ** 2
         k = np.outer(1 - ay if sy else ay, 1 - ax if sx else ax)
         n_sum = n_sum + k[..., None] * n
-    return write(cn, unit(n_sum), out_dir, name, "wrap", slope)
+    return write(cn, unit(n_sum), out_dir, name, "wrap", slope, highpass)
 
 
 OBJECT_FINE = 0.25   # objects: share of the classic fine detail on top of MoGe's whole shape (more turns paint grain into blotches)

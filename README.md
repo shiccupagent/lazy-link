@@ -120,7 +120,7 @@ python3 imagegen/pick_sounds.py out/takes/ --ref liked.wav --dest out/picks/  # 
 python3 imagegen/sheet.py cmp.png asks.json krea2=out/krea2:"Krea 2"         # compare pictures from several models side by side
 python3 imagegen/watch.py                                                    # new open image models worth a test (public Hugging Face pages)
 ```
-`bump` asks the PC's MoGe-2 model for the shapes (the same model as `make mesh`), then does the rest on the Mac. `bump --tile` makes the maps wrap for a seamless picture from `tile`; `bump --object [--plain]` makes a normal map only, for sprites and whole scenes.
+`bump` asks the PC's MoGe-2 model for the shapes (the same model as `make mesh`), then does the rest on the Mac. `bump --tile` makes the maps wrap for a seamless picture from `tile`; `bump --object [--plain]` makes a normal map only, for sprites and whole scenes. `bump --highpass R` takes the waves wider than R pixels out of the normal map (it filters the slopes, so the height and AO made from it agree); use it when broad relief looks wrong, for example a varnished floor that reads as crumpled foil. Check first which size the unwanted relief is: on the 1K Buckets court tile, relief wider than 12 px was under 1% of the total.
 It and `shrink` need Python libraries on the Mac: `pip3 install numpy scipy pillow` (`shrink` needs only Pillow).
 `audio_check` and `pick_sounds` need ffmpeg (`brew install ffmpeg`) and numpy (`audio_check`) or numpy and scipy (`pick_sounds`);
 `sheet` needs Pillow; `watch` needs nothing extra. One install covers all: `pip3 install numpy scipy pillow`.
@@ -193,6 +193,16 @@ line in your voice, on the PC, offline. Your recordings are personal: they stay 
 (`voice/recordings` and `voice/refs`, never committed) and never go anywhere else. Change the lines in
 `voice/scripts.json`; `voice/example-voices.json` has two made-up character voices. Only copy a voice you have the
 right to use. Everything Chatterbox makes carries an inaudible watermark that marks it as AI speech.
+
+### Make a character talk (Windows PC)
+```bash
+./voice/lipsync.py --setup                                # once: installs Rhubarb Lip Sync (MIT) on the PC
+./voice/lipsync.py line1.wav line2.wav --out DIR          # DIR/line1.json, DIR/line2.json
+```
+Each `.json` says which mouth shape to show when (`{"mouthCues": [{"start": 0.0, "end": 0.12, "value": "X"}, ...]}`),
+using the nine cartoon-mouth letters A-H and X (the table is in `voice/lipsync.py`). Put the words in `line1.txt` beside
+`line1.wav` (or pass `--text`) and the shapes land on the right sounds. English only. Draw one mouth per letter, or turn
+the letters into a 3D mouth's jaw and lip numbers; ease into each new shape over about 60 ms so it never snaps.
 
 **Batch your asks.** Each job spends 15-55 s starting ComfyUI or loading a model; after that, every
 extra image or answer is quick. One job with 50 asks beats 50 jobs with one.
