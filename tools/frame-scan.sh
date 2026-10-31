@@ -9,9 +9,13 @@ FF="$(command -v ffmpeg || echo /opt/homebrew/bin/ffmpeg)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 "$FF" -v error -i "$VIDEO" -vf "fps=1/$EVERY" "$WORK/f_%05d.png"
 n=$(ls "$WORK"/*.png | wc -l | tr -d ' ')
-swift "$HERE/ocr.swift" "$WORK"/*.png | sed "s#^$WORK/##" > "$WORK/text.txt"
+# In batches: one swift run over ~100 frames once printed nothing at all, and an empty read must never pass as clean.
+: > "$WORK/text.txt"
+ls "$WORK"/*.png | xargs -n 25 swift "$HERE/ocr.swift" | sed "s#^$WORK/##" >> "$WORK/text.txt"
 mkdir -p "$WORK/scan" && cp "$WORK/text.txt" "$WORK/scan/frames-text.txt"
-echo "read $n frames ($(wc -l < "$WORK/text.txt" | tr -d ' ') lines of text)"
+lines=$(wc -l < "$WORK/text.txt" | tr -d ' ')
+echo "read $n frames ($lines lines of text)"
+if [ "$lines" -eq 0 ]; then echo "frame scan: read NO text; the scan proves nothing (is ocr.swift working?)"; exit 2; fi
 "$HERE/privacy-scan.sh" "$WORK/scan" | grep -v '^privacy scan: clean' || true
 # privacy-scan exits non-zero on a hit; repeat the check on the frame text alone for the verdict
 if "$HERE/privacy-scan.sh" "$WORK/scan" >/dev/null 2>&1; then echo "frame scan: clean"; else echo "frame scan: FOUND personal data"; exit 1; fi
