@@ -42,7 +42,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 from pcsubmit import load_imagegen, submit
 
-TOOL_VERSION = "1.0.0"
+TOOL_VERSION = "1.1.0"
 PC_SCRIPT = HERE / "pc" / "env_blender.py"
 RENDER_FILE = "render.hdr"          # the raw render's name inside the job's output folder (options "render")
 DEFAULT_SIZE = 512
@@ -54,8 +54,12 @@ WAIT_LIMIT = 3 * 3600               # seconds the job waits in the PC's queue be
 REC709 = np.array([0.2126, 0.7152, 0.0722])
 DARK_MEAN = 0.005                   # mean luminance at or below this: the lights do not reach the camera (bake's DARK_MEAN)
 FLAT_SPREAD = 0.02                  # luminance std / mean below this: one uniform colour, nothing to light from
-SEAM_WARN = 2.0                     # wrap step / ordinary step inside the picture (about 1 = seamless); provisional
-SEAM_FAIL = 4.0                     # provisional until calibrated on a real Mac render (docs/REMOTE-GEN-NOTES)
+SEAM_WARN = 2.0                     # wrap step / median step beside it (about 1 = seamless)
+SEAM_FAIL = 4.0                     # calibrated 2026-10-30: gym and clear-sky renders read 0.1 to 1.1 at seven inner
+                                    # columns; the gym's wrap read 3.0 before the overscan (a 4% denoiser bump)
+SEAM_BAND = 4                       # columns on each side of the wrap that wrap_seam compares against
+SEAM_FLOOR = 0.01                   # a step under 1% of the brightness beside the wrap counts as ordinary (a flat,
+                                    # denoised wall has steps near 0, which made a 0.3% offset read 3.8)
 CAM_ROT_DEG = [90.0, 0.0, -90.0]    # must match CAM_ROT in pc/env_blender.py (test_env checks it)
 
 # Blender writes its own logging to stdout; keep the ENV lines that matter, and always keep the log.
@@ -441,14 +445,18 @@ def flat_spread(img):
     return float(lum.std() / m) if m > 0 else 0.0
 
 
-def wrap_seam(img):
-    """How much the picture jumps where its left edge meets its right edge, against an ordinary step inside it
-    (about 1 = seamless). Only the horizontal wrap counts: an equirectangular map's top and bottom rows are the poles,
-    which are not neighbours (tiles.seam would count them and flag every sky)."""
+def wrap_seam(img, band=SEAM_BAND):
+    """How much the picture jumps where its left edge meets its right edge, against the ordinary steps beside the
+    edge (about 1 = seamless): the median of the column steps within `band` columns of the wrap. Local, so a sun or
+    lamp near the edge (steep but smooth) is not a seam; the whole picture's mean step was tiny for a clear sky and
+    flagged one at 3.0. Steps beside the wrap smaller than SEAM_FLOOR of the band's mean brightness count as that floor.
+    Only the horizontal wrap counts: the top and bottom rows are the poles, not neighbours."""
     g = img.astype(np.float64).mean(axis=2)
-    inside = np.abs(np.diff(g, axis=1)).mean()
-    edge = np.abs(g[:, 0] - g[:, -1]).mean()
-    return float(edge / (inside + 1e-9))
+    k = max(1, min(int(band), g.shape[1] // 4))
+    b = np.concatenate([g[:, -k:], g[:, :k]], axis=1)
+    steps = np.abs(np.diff(b, axis=1)).mean(axis=0)
+    beside = max(np.median(np.delete(steps, k - 1)), SEAM_FLOOR * np.abs(b).mean())
+    return float(steps[k - 1] / (beside + 1e-9))
 
 
 def check_render(img):
@@ -504,8 +512,10 @@ def finish(out, args, opts, census):
         full = read_hdr(render)
     except ValueError as e:
         raise SystemExit(f"env: {e}") from None
-    if full.shape[1] != args.render_width:
-        raise SystemExit(f"env: the render is {full.shape[1]} wide, expected {args.render_width}")
+    pad = int(summary.get("overscan", 0))                 # columns past 360 degrees on each side (env_blender.py)
+    if full.shape[1] != args.render_width + 2 * pad:
+        raise SystemExit(f"env: the render is {full.shape[1]} wide, expected {args.render_width} + 2 x {pad}")
+    full = full[:, pad:full.shape[1] - pad]
     checks, failures, warnings = check_render(full)
     if failures:
         raise SystemExit("env: the render failed its checks: " + " | ".join(failures)

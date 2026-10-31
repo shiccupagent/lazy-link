@@ -428,6 +428,21 @@ class OutputTests(EnvCase):
                     "meanLuminance", "suggestedEnvMapIntensity", "checks"):
             self.assertIn(key, side)
 
+    def test_the_overscan_columns_are_cropped_off(self):
+        inner = periodic_render(h=32, w=64)
+        pad = 8
+        wide = np.concatenate([np.full((32, pad, 3), 99.0), inner, np.full((32, pad, 3), 99.0)], axis=1)
+        self.fake_pc(state="done", summary=ok_summary(overscan=pad), render=wide)
+        side = env.run(env.parse_args(["--sky", "--sun=90,35", "--size", "64", "--name", "t", *self.o]))
+        np.testing.assert_allclose(env.read_hdr(self.out / "t_env.hdr"), inner, rtol=0.02, atol=1e-3)
+        self.assertLess(side["checks"]["seamRatio"], env.SEAM_WARN)
+
+    def test_a_render_missing_its_overscan_is_refused(self):
+        self.fake_pc(state="done", summary=ok_summary(overscan=8), render=periodic_render(h=32, w=64))
+        with self.assertRaises(SystemExit) as cm:
+            env.run(env.parse_args(["--sky", "--sun=90,35", "--size", "64", *self.o]))
+        self.assertIn("expected 64 + 2 x 8", str(cm.exception))
+
     def test_sky_sidecar_records_the_sun_and_the_model(self):
         self.fake_pc(state="done", summary=ok_summary(), render=periodic_render())
         side = env.run(env.parse_args(["--sky", "--sun=90,35", "--size", "64", *self.o]))
@@ -556,7 +571,7 @@ class CheckTests(unittest.TestCase):
         self.assertTrue(any("left and right edges do not meet" in f for f in failures))
 
     def test_a_loose_seam_between_two_and_four_warns(self):
-        jump = 2.1                                    # wrap ratio 63(1+J)/(63+J) = 3.0
+        jump = 2.0                                    # wrap ratio 1 + J = 3
         g = np.tile(np.arange(64) % 2, (32, 1)).astype(float)
         g[:, 63] = (63 % 2) + jump
         _, failures, warnings = env.check_render(gray_rows(g))
@@ -586,10 +601,35 @@ class SeamAndWeightTests(unittest.TestCase):
             g = np.tile(np.arange(64) % 2, (2, 1)).astype(float)
             g[:, 63] = 1.0 + jump
             r = env.wrap_seam(gray_rows(g))
-            self.assertAlmostEqual(r, 63 * (1 + jump) / (63 + jump), places=6)
+            self.assertAlmostEqual(r, 1 + jump, places=6)
             ratios.append(r)
         self.assertEqual(ratios, sorted(ratios))
         self.assertLess(ratios[0], ratios[-1])
+
+    def test_a_bright_sun_beside_the_edge_is_not_a_seam(self):
+        # a clear sky with the sun 20 columns from the wrap: steep but smooth there, nearly flat everywhere else
+        # (the whole-picture mean step made this 3.0 on a real render)
+        x = np.arange(512)
+        d = np.minimum(np.abs(x - 20), 512 - np.abs(x - 20))
+        sky = np.tile(0.05 + 5.0 * np.exp(-(d / 12.0) ** 2), (8, 1))
+        self.assertLess(env.wrap_seam(gray_rows(sky)), 1.5)
+
+    def test_a_tiny_offset_on_a_flat_wall_is_not_a_seam(self):
+        g = np.full((4, 64), 1.9)
+        g[:, :32] = 1.905                             # 0.26% step at the wrap, perfectly flat beside it
+        self.assertLess(env.wrap_seam(gray_rows(g)), 1.0)
+
+    def test_a_level_step_at_the_wrap_is_a_seam(self):
+        g = np.tile((np.arange(64) % 2).astype(float), (4, 1))
+        g[:, :32] += 4.0                              # wrap step |0 + 4 - 1| = 3, steps beside it 1
+        self.assertAlmostEqual(env.wrap_seam(gray_rows(g)), 3.0, places=6)
+
+    def test_overscan_widens_the_camera_by_the_cropped_columns(self):
+        for w in (256, 512, 1024, 2048):
+            pad = EB.overscan_px(w)
+            self.assertGreaterEqual(pad, 8)
+            # the same angle per column inside and in the overscan
+            self.assertAlmostEqual(2 * EB.longitude_span(w) / (w + 2 * pad), 2 * math.pi / w, places=12)
 
     def test_box_down_averages_two_by_two_blocks(self):
         img = np.zeros((4, 8, 3))

@@ -173,7 +173,7 @@ python3 imagegen/env.py venue.glb --at=0,1.6,0 --sky --sun=-90,20 --turbidity 3 
 - The sky is Blender's Multiple Scattering model. `--turbidity 1` to `10` switches to Hosek-Wilkie, the only model that reads it.
 - The sidecar's `suggestedEnvMapIntensity` is `round(0.5 / meanLuminance, 3)`, where meanLuminance is the solid-angle-weighted Rec.709 mean of the map. Set `envMapIntensity` to it.
 - Orientation: the centre of the picture looks at +X, a quarter across at -Z, three quarters across at +Z, and both edges at -X. Row 0 is up.
-- A render that fails its checks (nearly black, flat, wrong aspect, or left and right edges that do not meet) writes no `.hdr`; the raw render is kept beside it. The seam check looks only at the left-right wrap, since the poles are not neighbours. Its thresholds (warn 2.0, fail 4.0) are provisional until a real PC render is checked.
+- A render that fails its checks (nearly black, flat, wrong aspect, or left and right edges that do not meet) writes no `.hdr`; the raw render is kept beside it. The seam check looks only at the left-right wrap (the poles are not neighbours) and compares the step there with the steps just beside it, so a sun near the edge is fine; warn 2.0, fail 4.0. Blender renders a few columns past 360 degrees and env.py crops them off, so the denoiser's picture border never lands on the wrap.
 - Windows PC only for now: other PCs are refused before anything is sent. A venue with no light and no `--sky` is refused too.
 
 ### Copy your own voice (Windows PC)

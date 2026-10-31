@@ -11,7 +11,8 @@ options.json (written by env.py; every key present):
             AZ: 0 = glTF -Z, 90 = +X, clockwise seen from above; EL: 0 = horizon, 90 = zenith.
             turbidity (1 to 10) forces Hosek-Wilkie, the only sky model that reads it.
   clamp   Cycles indirect light clamp (default 20)
-  width   render width in pixels; the height is half of it
+  width   render width in pixels; the height is half of it. The file is wider: overscan_px(width) extra columns on each
+          side, past 360 degrees, which env.py crops off, so the denoiser's picture border never lands on the wrap seam
   render  file name of the raw render inside OUT_DIR (env.py reads it back)
 
 What it does: Cycles on the GPU when one is found (OptiX, then CUDA, then CPU), 256 samples, OpenImageDenoise,
@@ -46,6 +47,17 @@ SKY_ORDER = ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING", "HOSEK_WILKIE", "PREETH
 
 
 # ---------- pure helpers (testable without Blender) ----------
+
+def overscan_px(width):
+    """Extra columns rendered on each side of the 360 degrees (the denoiser treats the picture's border as an edge and
+    brightens the last few columns, which shows as a line where the map wraps)."""
+    return max(8, int(width) // 32)
+
+
+def longitude_span(width):
+    """Half the camera's longitude range in radians for a render of `width` columns plus the overscan."""
+    return math.pi * (1.0 + 2.0 * overscan_px(width) / int(width))
+
 
 def at_to_blender(at):
     """glTF / three.js (x, y, z) to Blender (x, -z, y): the same axis change the glTF importer makes."""
@@ -235,12 +247,15 @@ def build_world(sc, sky):
             "turbidity": None if turbidity is None else float(turbidity), "skyTypesOffered": available}
 
 
-def build_camera(sc, location):
+def build_camera(sc, location, width):
     cd = bpy.data.cameras.new("EnvCam")
     cd.type = "PANO"
     cd.panorama_type = "EQUIRECTANGULAR"
     cd.clip_start = 0.001
     cd.clip_end = 100000.0      # the venue can be larger than the default clip
+    pano = cd if hasattr(cd, "longitude_min") else cd.cycles    # Blender 3 kept the panorama settings in Cycles
+    pano.longitude_min, pano.longitude_max = -longitude_span(width), longitude_span(width)
+    pano.latitude_min, pano.latitude_max = -math.pi / 2, math.pi / 2
     cam = bpy.data.objects.new("EnvCam", cd)
     sc.collection.objects.link(cam)
     sc.camera = cam
@@ -250,7 +265,7 @@ def build_camera(sc, location):
 
 
 def render_to(sc, width, path):
-    sc.render.resolution_x = int(width)
+    sc.render.resolution_x = int(width) + 2 * overscan_px(width)
     sc.render.resolution_y = int(width) // 2
     sc.render.resolution_percentage = 100
     sc.render.filepath = str(path)
@@ -276,7 +291,7 @@ def main():
                "samples": SAMPLES, "viewTransform": VIEW_TRANSFORM, "look": "None", "exposure": 0.0,
                "gamma": 1.0, "denoiser": DENOISER, "blenderVersion": bpy.app.version_string,
                "skyType": None, "sun": None, "turbidity": None, "device": None, "deviceNames": None,
-               "census": None, "renderFile": opts["render"]}
+               "census": None, "renderFile": opts["render"], "overscan": overscan_px(opts["width"])}
     try:
         sc = reset_scene(opts["clamp"])
         summary["device"], summary["deviceNames"] = pick_device(sc)
@@ -301,7 +316,7 @@ def main():
         if sky is not None and opts["venue"] and suns == 0 and lamps == 0 and emissive == 0:
             summary["warnings"].append("venue has no sun, lamp or emissive material: only the sky lights it")
         location = at_to_blender(opts["at"]) if opts["venue"] else (0.0, 0.0, 0.0)
-        build_camera(sc, location)
+        build_camera(sc, location, opts["width"])
         log(f"camera at Blender {tuple(round(v, 3) for v in location)}")
         render_to(sc, opts["width"], out / opts["render"])
         summary["status"] = "ok"
