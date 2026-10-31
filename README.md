@@ -178,6 +178,26 @@ python3 imagegen/env.py venue.glb --at=0,1.6,0 --sky --sun=-90,20 --turbidity 3 
 - A render that fails its checks (nearly black, flat, wrong aspect, or left and right edges that do not meet) writes no `.hdr`; the raw render is kept beside it. The seam check looks only at the left-right wrap (the poles are not neighbours) and compares the step there with the steps just beside it, so a sun near the edge is fine; warn 2.0, fail 4.0. Blender renders a few columns past 360 degrees and env.py crops them off, so the denoiser's picture border never lands on the wrap.
 - Windows PC only for now: other PCs are refused before anything is sent. A venue with no light and no `--sky` is refused too.
 
+### Venues exported from three.js
+
+A venue exported from three.js renders like any other venue, with three additions for its lights and for helper objects that only exist in the editor.
+
+```bash
+python3 imagegen/env.py venue.glb --lights three --at=0,1.7,14 --size 2048 --also 512,1024 --name buckets-arena --out out/env/
+```
+
+- `--lights three` reads the venue's lights as three.js intensities. The glTF importer's COMPAT mode does it: a sun of intensity I becomes a Blender sun of strength I, and a point or spot of candela I becomes power 4π·I, the same numbers the three.js scene shows. Measured on Blender 5.1.2: sun 5.0 for I=5, point and spot 125.66 for I=10, with no energies set by hand. The default `--lights standard` keeps glTF's physical units (sun I/683, point and spot 4π·I/683), which is right for a venue whose lights are already in lux and candela. `--lights three` needs a venue `.glb`; without one it is refused.
+- `userData.env` on a node (exported as glTF extras) acts on that node and everything under it:
+  - `"drop"` deletes the node and its subtree before the render, GPU-instanced copies included. Use it for editor-only helpers such as blob shadows or vignette cards.
+  - `"light-only"` keeps the object so it still lights the scene, but turns off its visibility to the camera. Use it for a sky panel that should bounce light without showing in the picture.
+  - Any other value is ignored and reported as a warning. The counts go in the sidecar's `extras`: `dropRoots`, `dropped`, `lightOnly` and `unknown`.
+- Each DirectionalLight needs its target parented to it at (0, 0, -1). The glTF light points along its own -Z and the exporter writes no target, so without this the sun in Blender does not point where the three.js light does:
+
+```js
+light.target.position.set(0, 0, -1);
+light.add(light.target);
+```
+
 ### Copy your own voice (Windows PC)
 ```bash
 ./voice/install.py          # puts a "Record voices" icon on the PC's desktop

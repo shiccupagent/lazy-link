@@ -14,6 +14,11 @@ options.json (written by env.py; every key present):
   width   render width in pixels; the height is half of it. The file is wider: overscan_px(width) extra columns on each
           side, past 360 degrees, which env.py crops off, so the denoiser's picture border never lands on the wrap seam
   render  file name of the raw render inside OUT_DIR (env.py reads it back)
+  lights  "standard" (default) or "three": how the venue's glTF lights are read. "standard" keeps glTF's physical
+          units as Blender's importer reads them (a sun comes in at I / 683). "three" reads three.js intensities, which
+          is what three.js's GLTFExporter writes: a sun's I is a sun strength of I, and a point or spot's candela I is a
+          power of 4 * pi * I (the importer's Unitless mode, checked on Blender 5.1.2). Emissive materials are not
+          affected by it.
   ground  null, or [R, G, B] linear albedo of a ground plane (needs a sky with a sun disc): a 100 km diffuse plane at
           the venue's lowest point, or GROUND_EYE below the camera without a venue. It is lit by the sky and the sky's
           own sun disc, which only rays that are not camera rays see, so the map shows no disc but the ground is as
@@ -26,6 +31,11 @@ u 0.75 at +Z, u 0.25 at -Z, and both edges at -X. Row 0 is up. Checked end to en
 +X, +Z, -Z and +Y: the file's first scanline is the top, so env.py reads the rows as written, with no flip.
 
 Outputs in OUT_DIR: the raw render (options "render"), summary.json, and one stdout line that starts with ENV_SUMMARY.
+Extras: a venue node's extras "env" (three.js userData.env, exported as extras.env) is applied after the import and
+before the census. "drop" deletes the object and everything parented under it (GPU instances hang under the node that
+carries them). "light-only" sets visible_camera False: the object still lights the scene but is not seen. Any other
+value is a warning and is ignored. Counts go to summary.json.
+
 The job fails with "status": "failed" before rendering when there is no sky and no light (no sun or lamp above zero,
 no emissive material that reaches the output).
 """
@@ -53,6 +63,10 @@ SKY_ORDER = ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING", "HOSEK_WILKIE", "PREETH
 DISC_SKIES = ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING")    # the models with a sun disc (--ground needs one)
 GROUND_EYE = 1.6            # metres from a sky-only camera down to the ground plane
 GROUND_HALF = 50000.0       # half the ground plane's side in metres: inside the camera's clip_end
+LIGHT_MODES = {"standard": "SPEC", "three": "COMPAT"}   # --lights value -> the glTF importer's lighting mode
+EXTRA_ACTIONS = ("drop", "light-only")                   # the values of a node's extras "env" this job acts on
+OPTION_DEFAULTS = {"venue": None, "at": None, "sky": None, "clamp": 20.0, "width": 512, "render": "render.hdr",
+                   "ground": None, "lights": "standard"}
 
 
 # ---------- pure helpers (testable without Blender) ----------
@@ -89,6 +103,63 @@ def pick_sky_type(available, turbidity=None):
     raise RuntimeError(f"no usable Sky Texture model in this Blender (offers {have})")
 
 
+def check_options(opts):
+    """Refuses an options.json key this script does not know, or a lights value it cannot map. Returns opts."""
+    unknown = set(opts) - set(OPTION_DEFAULTS)
+    if unknown:
+        raise SystemExit(f"ENV unknown option(s): {sorted(unknown)}")
+    if opts.get("lights") not in LIGHT_MODES:
+        raise SystemExit(f"ENV lights must be one of {sorted(LIGHT_MODES)}, got {opts.get('lights')!r}")
+    return opts
+
+
+def extras_action(value):
+    """The action a node's extras "env" asks for (env.py's userData.env convention), or None for any other value."""
+    return value if value in EXTRA_ACTIONS else None
+
+
+def _subtree(obj):
+    """obj and every object parented under it, at any depth."""
+    out, stack = [], [obj]
+    while stack:
+        o = stack.pop()
+        out.append(o)
+        stack.extend(o.children)
+    return out
+
+
+def apply_extras(objects, remove):
+    """Applies each object's custom property "env" (a glTF node's extras, copied across by the importer). "drop" removes
+    the object and its whole subtree through remove(obj). "light-only" sets visible_camera False, so the object still
+    lights the scene. Returns the counts and names for the summary.
+    objects: the imported objects, or stand-ins with name, get(), children and visible_camera (the Mac tests)."""
+    objs = list(objects)
+    actions, unknown = {}, []
+    for obj in objs:
+        raw = obj.get("env")
+        if raw is None:
+            continue
+        act = extras_action(raw)
+        if act is None:
+            unknown.append((obj.name, raw))
+        else:
+            actions[obj.name] = act
+    doomed, drop_roots = {}, []
+    for obj in objs:
+        if actions.get(obj.name) == "drop":
+            drop_roots.append(obj.name)
+            for o in _subtree(obj):
+                doomed[o.name] = o           # keyed by name: one entry per object even when drops nest
+    light_only = []
+    for obj in objs:
+        if obj.name not in doomed and actions.get(obj.name) == "light-only":
+            obj.visible_camera = False
+            light_only.append(obj.name)
+    for o in doomed.values():
+        remove(o)
+    return {"dropRoots": drop_roots, "dropped": len(doomed), "lightOnly": light_only, "unknown": unknown}
+
+
 # ---------- Blender helpers (copies of the bake's light census; bake_blender.py is left as it is) ----------
 
 def log(*a):
@@ -102,14 +173,11 @@ def parse_args():
         return argv[argv.index(flag) + 1] if flag in argv else default
 
     out = Path(value("--out", "env_out")).resolve()
-    opts = {"venue": None, "at": None, "sky": None, "clamp": 20.0, "width": 512, "render": "render.hdr", "ground": None}
+    opts = dict(OPTION_DEFAULTS)
     if value("--options"):
         with open(value("--options")) as f:
             opts.update(json.load(f))
-    unknown = set(opts) - {"venue", "at", "sky", "clamp", "width", "render", "ground"}
-    if unknown:
-        raise SystemExit(f"ENV unknown option(s): {sorted(unknown)}")
-    return out, opts
+    return out, check_options(opts)
 
 
 def reset_scene(clamp):
@@ -208,6 +276,10 @@ def emits(mat):
         if socket_positive(col) and socket_positive(strength):
             return True
     return False
+
+
+def remove_object(obj):
+    bpy.data.objects.remove(obj, do_unlink=True)
 
 
 def census(sc):
@@ -344,7 +416,7 @@ def main():
                "gamma": 1.0, "denoiser": DENOISER, "blenderVersion": bpy.app.version_string,
                "skyType": None, "sun": None, "turbidity": None, "device": None, "deviceNames": None,
                "census": None, "renderFile": opts["render"], "overscan": overscan_px(opts["width"]),
-               "ground": None}
+               "ground": None, "lights": opts["lights"], "lightingMode": LIGHT_MODES[opts["lights"]], "extras": None}
     try:
         sc = reset_scene(opts["clamp"])
         summary["device"], summary["deviceNames"] = pick_device(sc)
@@ -362,8 +434,14 @@ def main():
             venue = Path(opts["venue"]).resolve()     # Blender runs from the job folder, as bake does
             if not venue.is_file():
                 raise RuntimeError(f"venue file {venue.name} is not in the job folder")
-            bpy.ops.import_scene.gltf(filepath=str(venue))
-            log(f"imported {venue.name}")
+            bpy.ops.import_scene.gltf(filepath=str(venue),
+                                      export_import_convert_lighting_mode=LIGHT_MODES[opts["lights"]])
+            log(f"imported {venue.name}: lights {opts['lights']} (importer mode {LIGHT_MODES[opts['lights']]})")
+            summary["extras"] = apply_extras(sc.objects, remove_object)
+            for name, raw in summary["extras"]["unknown"]:
+                summary["warnings"].append(f"extras: {name} has env={raw!r}, not one of {list(EXTRA_ACTIONS)}; ignored")
+            ex = summary["extras"]
+            log(f"extras: dropped {ex['dropped']} object(s) under {ex['dropRoots']}, light-only {ex['lightOnly']}")
         suns, lamps, emissive = census(sc)
         summary["census"] = {"suns": suns, "lamps": lamps, "emissive": emissive, "sky": sky is not None}
         log(f"light: {suns} sun, {lamps} lamps, {emissive} emissive, sky {'on' if sky else 'off'}")

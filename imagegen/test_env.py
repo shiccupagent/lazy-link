@@ -269,6 +269,16 @@ class OptionTests(EnvCase):
         make_glb(odd, lit_doc)
         self.assertEqual(env.parse_args([str(odd), "--at=0,0,0", *self.o]).name, "venue")
 
+    def test_lights_defaults_to_standard_and_takes_three(self):
+        self.assertEqual(env.parse_args([str(self.lit), "--at=0,0,0", *self.o]).lights, "standard")
+        self.assertEqual(env.parse_args([str(self.lit), "--at=0,0,0", "--lights", "three", *self.o]).lights, "three")
+        self.assertEqual(env.parse_args(["--sky", "--sun=0,20", "--lights", "standard", *self.o]).lights, "standard")
+
+    def test_refuses_an_unknown_lights_value_and_three_without_a_venue(self):
+        self.assertIn("invalid choice", self.refused(str(self.lit), "--at=0,0,0", "--lights", "gamma", *self.o))
+        self.assertIn("--lights three needs a venue",
+                      self.refused("--sky", "--sun=0,20", "--lights", "three", *self.o))
+
 
 class CensusTests(EnvCase):
     def census_of(self, doc):
@@ -344,7 +354,7 @@ class JobTests(EnvCase):
         self.assertEqual(pc.job_files["venue.glb"], self.lit.read_bytes())
         opts = json.loads(pc.job_files["options.json"])
         self.assertEqual(opts, {"venue": "venue.glb", "at": [0.0, 0.0, 0.0], "sky": None, "clamp": 20.0,
-                                "width": 64, "render": "render.hdr", "ground": None})
+                                "width": 64, "render": "render.hdr", "ground": None, "lights": "standard"})
         self.assertIn("--options options.json --out $env:RENDER_OUT", pc.job_ps1)
 
     def test_job_folder_for_sky_only(self):
@@ -374,6 +384,16 @@ class JobTests(EnvCase):
         self.assertEqual(side["ground"], ground)
         self.assertIn("normal", side["sunIrradiance"])
         self.assertIn("directionalLight.intensity", side["sunIntensityRule"])
+
+    def test_job_folder_and_sidecar_carry_the_lights_mode_and_extras(self):
+        extras = {"dropRoots": ["blobs"], "dropped": 3, "lightOnly": ["panel"], "unknown": []}
+        pc = self.fake_pc(state="done", summary=ok_summary(lightingMode="COMPAT", extras=extras),
+                          render=periodic_render())
+        side = env.run(env.parse_args([str(self.lit), "--at=0,0,0", "--lights", "three", "--size", "64", *self.o]))
+        self.assertEqual(json.loads(pc.job_files["options.json"])["lights"], "three")
+        self.assertEqual(side["lights"], "three")
+        self.assertEqual(side["lightingMode"], "COMPAT")
+        self.assertEqual(side["extras"], extras)
 
     def test_the_pc_script_refuses_a_ground_on_a_sky_without_a_disc(self):
         self.assertEqual(EB.DISC_SKIES, ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING"))
@@ -733,6 +753,79 @@ class SkyAndCameraTests(unittest.TestCase):
         self.assertEqual(EB.SAMPLES, 256)
         self.assertEqual(EB.DENOISER, "OPENIMAGEDENOISE")
         self.assertEqual(EB.SKY_ORDER[0], "MULTIPLE_SCATTERING")
+
+
+class FakeObject:
+    """A stand-in for a Blender object: a name, custom properties, children and visible_camera."""
+    def __init__(self, name, env=None, parent=None):
+        self.name = name
+        self.props = {} if env is None else {"env": env}
+        self.children = []
+        self.visible_camera = True
+        if parent is not None:
+            parent.children.append(self)
+
+    def get(self, key, default=None):
+        return self.props.get(key, default)
+
+
+class LightsAndExtrasTests(EnvCase):
+    def test_importer_mode_for_each_lights_value(self):
+        self.assertEqual(EB.LIGHT_MODES, {"standard": "SPEC", "three": "COMPAT"})
+        self.assertEqual(EB.OPTION_DEFAULTS["lights"], "standard")
+
+    def test_the_job_options_are_the_pc_script_options(self):
+        args = env.parse_args([str(self.lit), "--at=0,0,0", "--lights", "three", *self.o])
+        with tempfile.TemporaryDirectory() as td:
+            _, opts = env.build_job(args, td)
+        self.assertEqual(set(opts), set(EB.OPTION_DEFAULTS))
+        self.assertEqual(EB.check_options(dict(opts))["lights"], "three")
+
+    def test_the_pc_script_refuses_an_unknown_option_or_lights_value(self):
+        with self.assertRaises(SystemExit) as cm:
+            EB.check_options({**EB.OPTION_DEFAULTS, "extra": 1})
+        self.assertIn("unknown option", str(cm.exception))
+        with self.assertRaises(SystemExit) as cm:
+            EB.check_options({**EB.OPTION_DEFAULTS, "lights": "gamma"})
+        self.assertIn("lights must be one of", str(cm.exception))
+
+    def test_extras_actions(self):
+        self.assertEqual(EB.extras_action("drop"), "drop")
+        self.assertEqual(EB.extras_action("light-only"), "light-only")
+        self.assertIsNone(EB.extras_action("keep"))
+        self.assertIsNone(EB.extras_action(3))
+
+    def test_extras_drop_whole_subtrees_and_hide_light_only(self):
+        blobs = FakeObject("blobs", "drop")
+        FakeObject("inst.0", parent=blobs)                 # GPU instances hang under the node that carries them
+        FakeObject("inst.1", parent=blobs)
+        vignette = FakeObject("vignette", "drop")
+        panel = FakeObject("panel", "light-only")
+        lamp = FakeObject("lamp", "keep")
+        plain = FakeObject("plain")
+        removed = []
+        result = EB.apply_extras([blobs, *blobs.children, vignette, panel, lamp, plain], removed.append)
+        self.assertEqual(sorted(o.name for o in removed), ["blobs", "inst.0", "inst.1", "vignette"])
+        self.assertFalse(panel.visible_camera)
+        self.assertTrue(plain.visible_camera)
+        self.assertEqual(result, {"dropRoots": ["blobs", "vignette"], "dropped": 4, "lightOnly": ["panel"],
+                                  "unknown": [("lamp", "keep")]})
+
+    def test_a_light_only_object_under_a_drop_is_removed_once_not_hidden(self):
+        root = FakeObject("root", "drop")
+        inner = FakeObject("inner", "light-only", parent=root)
+        removed = []
+        result = EB.apply_extras([root, inner], removed.append)
+        self.assertEqual([o.name for o in removed], ["root", "inner"])
+        self.assertTrue(inner.visible_camera)
+        self.assertEqual(result["lightOnly"], [])
+        self.assertEqual(result["dropped"], 2)
+
+    def test_no_extras_changes_nothing(self):
+        removed = []
+        result = EB.apply_extras([FakeObject("a"), FakeObject("b")], removed.append)
+        self.assertEqual(removed, [])
+        self.assertEqual(result, {"dropRoots": [], "dropped": 0, "lightOnly": [], "unknown": []})
 
 
 if __name__ == "__main__":

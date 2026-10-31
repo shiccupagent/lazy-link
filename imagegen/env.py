@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """env - equirectangular HDR environment maps for three.js lighting and reflections, rendered by Blender on the PC.
 
-  python3 imagegen/env.py VENUE.glb --at=x,y,z --out DIR [--sky --sun=AZ,EL [--turbidity T]] [--name NAME]
+  python3 imagegen/env.py VENUE.glb --at=x,y,z --out DIR [--lights three] [--sky --sun=AZ,EL [--turbidity T]] [--name NAME]
   python3 imagegen/env.py --sky --sun=AZ,EL --out DIR [--turbidity T | --ground R,G,B] [--name NAME]
                   [--clamp 20] [--size 512] [--also 256,1024] [--timeout S] [--wait S]
 
@@ -10,6 +10,13 @@ Use the = form for negative values (--at=-1,2,3, --sun=-90,20): argparse reads a
 A venue is lit by its own lights (suns, lamps, emissive materials) and seen from --at, in the .glb's own units.
 --sky adds a Sky Texture; with no venue the camera sits at the origin. Both together light the venue with the sky too.
 A venue with no light and no --sky is refused before anything is sent.
+--lights standard (the default) reads the venue's lights in glTF's physical units, as Blender's importer does: a sun
+comes in at I / 683. --lights three reads them as three.js intensities, the units a three.js scene is lit in and what
+GLTFExporter writes: a sun's I is a sun strength of I, and a point or spot's candela I is a power of 4 * pi * I, so it
+gives the same light as three.js. Emissive materials are the same either way. Needs a venue (see the venue section of
+README.md, "Venues exported from three.js").
+A venue node's extras "env" (userData.env in three.js): "drop" removes the object and its children before the render;
+"light-only" keeps it lighting the scene but not in view. Counts go to the sidecar's "extras".
 --ground R,G,B (linear albedo, 0 to 1, e.g. 0.10,0.22,0.06 for grass; needs --sky, not --turbidity) puts a 100 km
 diffuse plane under the sky: 1.6 m below the camera with no venue, just under the venue's lowest point with one. The
 sky's sun lights it, so its brightness follows the sky; the map itself still shows no sun disc. Without it the lower
@@ -49,7 +56,8 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 from pcsubmit import load_imagegen, submit
 
-TOOL_VERSION = "1.2.0"
+TOOL_VERSION = "1.3.0"
+LIGHTS = ("standard", "three")      # --lights: how the venue's lights are read (env_blender.py LIGHT_MODES)
 PC_SCRIPT = HERE / "pc" / "env_blender.py"
 RENDER_FILE = "render.hdr"          # the raw render's name inside the job's output folder (options "render")
 DEFAULT_SIZE = 512
@@ -100,6 +108,8 @@ def parse_args(argv=None):
     ap.add_argument("venue", nargs="?", help="venue .glb, lit by its own lights and seen from --at")
     ap.add_argument("--at", metavar="x,y,z", help="camera position in the .glb's units (needs a venue)")
     ap.add_argument("--sky", action="store_true", help="add a sky (needs --sun)")
+    ap.add_argument("--lights", choices=LIGHTS, default="standard",
+                    help="how the venue's lights are read: standard (glTF units) or three (three.js intensities)")
     ap.add_argument("--sun", metavar="AZ,EL",
                     help="sun direction in degrees: AZ 0 = glTF -Z, 90 = +X; EL 0 = horizon, 90 = zenith")
     ap.add_argument("--turbidity", type=float, help="sky haziness, 1 to 10 (forces the Hosek-Wilkie sky)")
@@ -136,6 +146,8 @@ def normalize(ap, args):
         else:
             if args.at is not None:
                 refuse("--at needs a venue .glb")
+            if args.lights == "three":
+                refuse("--lights three needs a venue .glb (it sets how the venue's lights are read)")
             args.venue = None
             args.at = None
         if args.sky:
@@ -269,6 +281,7 @@ def build_job(args, workdir):
         "width": int(args.render_width),
         "render": RENDER_FILE,
         "ground": args.ground,
+        "lights": args.lights,
     }
     opts_path = Path(workdir) / "options.json"
     opts_path.write_text(json.dumps(opts, indent=1))
@@ -601,6 +614,9 @@ def finish(out, args, opts, census):
                    "rowZeroIs": "up"},
         "size": {"width": args.size, "height": args.size // 2},
         "renderWidth": args.render_width,
+        "lights": args.lights,
+        "lightingMode": summary.get("lightingMode"),
+        "extras": summary.get("extras"),
         "files": {"hdr": hdr.name, "png": png.name, "json": f"{stem}_env.json", "extraHdr": extras},
         "meanLuminance": round(mean_l, 6),
         "suggestedEnvMapIntensity": round(0.5 / mean_l, 3),
