@@ -18,7 +18,8 @@ success. The job fails when the render is nearly black, flat, or its left and ri
 
 Colour: view transform Standard (no look, exposure 0, gamma 1), float output, so the values stay scene-linear.
 Sky: Multiple Scattering (sun disc off) where this Blender has it; a turbidity forces Hosek-Wilkie.
-Camera: equirectangular panorama. The centre column faces +X, the right edge +Z, row 0 is up (checked on Blender 5.1.2).
+Camera: equirectangular panorama, three.js's own layout: u 0.25 faces -Z, the centre +X, u 0.75 +Z, both edges -X;
+row 0 is up. Sun AZ 0 = -Z, 90 = +X (both checked on Blender 5.1.2).
 Intensity: suggestedEnvMapIntensity = round(0.5 / meanLuminance, 3). Scale the map by it in three.js: a white albedo-1
 diffuse under a uniform map then reads 0.5.
 Windows PC only for now (like bake). Not in v1: UltraHDR, pre-filtered cubemaps.
