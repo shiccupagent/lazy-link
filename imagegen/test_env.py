@@ -372,10 +372,32 @@ class JobTests(EnvCase):
                                        *self.o]))
         self.assertEqual(json.loads(pc.job_files["options.json"])["ground"], [0.1, 0.22, 0.06])
         self.assertEqual(side["ground"], ground)
+        self.assertIn("normal", side["sunIrradiance"])
+        self.assertIn("directionalLight.intensity", side["sunIntensityRule"])
 
     def test_the_pc_script_refuses_a_ground_on_a_sky_without_a_disc(self):
         self.assertEqual(EB.DISC_SKIES, ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING"))
         self.assertNotIn("HOSEK_WILKIE", EB.DISC_SKIES)
+
+
+class SunIrradianceTests(unittest.TestCase):
+    def sky_over_ground(self, sky, sun, albedo, el, h=64, w=128):
+        """Uniform sky radiance over a flat ground lit by it (E = pi sky) and a sun of normal irradiance `sun`."""
+        img = np.empty((h, w, 3))
+        img[: h // 2] = sky
+        img[h // 2:] = np.asarray(albedo) * (math.pi * np.asarray(sky) + np.asarray(sun) * math.sin(math.radians(el))) / math.pi
+        return img
+
+    def test_recovers_the_sun_from_the_ground(self):
+        img = self.sky_over_ground([2.6, 4.5, 8.0], [160.0, 136.0, 105.0], [0.10, 0.22, 0.06], 51)
+        got = env.sun_irradiance(img, [0.10, 0.22, 0.06], 51)
+        np.testing.assert_allclose(got["rgb"], [160.0, 136.0, 105.0], rtol=0.02)   # equirect rows are discrete
+        self.assertAlmostEqual(got["normal"], float(np.array([160.0, 136.0, 105.0]) @ env.REC709), delta=3)
+
+    def test_none_for_a_sun_under_the_horizon_or_a_black_ground(self):
+        img = self.sky_over_ground([1, 1, 1], [100, 100, 100], [0.2, 0.2, 0.2], 30)
+        self.assertIsNone(env.sun_irradiance(img, [0.2, 0.2, 0.2], -5))
+        self.assertIsNone(env.sun_irradiance(img, [0.2, 0.0, 0.2], 30))
 
 
 class RunOutcomeTests(EnvCase):
@@ -443,6 +465,7 @@ class OutputTests(EnvCase):
                                          "extraHdr": ["t_env_64.hdr"]})
         self.assertEqual(side["warnings"], ["test warning"])
         self.assertEqual(side["intensityFormula"], "round(0.5 / meanLuminance, 3)")
+        self.assertIsNone(side["sunIrradiance"])                  # a venue shades the ground: never measured
         self.assertEqual(side["camera"]["rotationDeg"], env.CAM_ROT_DEG)
         self.assertEqual(side["clamp"], 20.0)
         for key in ("tool", "toolVersion", "name", "createdAt", "device", "deviceNames", "blenderVersion",

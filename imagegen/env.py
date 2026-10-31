@@ -25,7 +25,10 @@ Sky: Multiple Scattering (sun disc off) where this Blender has it; a turbidity f
 Camera: equirectangular panorama, three.js's own layout: u 0.25 faces -Z, the centre +X, u 0.75 +Z, both edges -X;
 row 0 is up. Sun AZ 0 = -Z, 90 = +X (both checked on Blender 5.1.2).
 Intensity: suggestedEnvMapIntensity = round(0.5 / meanLuminance, 3). Scale the map by it in three.js: a white albedo-1
-diffuse under a uniform map then reads 0.5.
+diffuse under a uniform map then reads 0.5. That suits a venue. For a sky, the game's DirectionalLight is the sun, so
+keep the sky-to-sun ratio instead: with --ground and no venue the sidecar's sunIrradiance.normal is the sun's
+irradiance at right angles, measured off the ground, and envMapIntensity = directionalLight.intensity / that keeps the
+map and the game's sun at the rendered ratio, whatever units the game's light uses.
 Windows PC only for now (like bake). Not in v1: UltraHDR, pre-filtered cubemaps.
 """
 import argparse
@@ -495,6 +498,26 @@ def check_render(img):
     return checks, failures, warnings
 
 
+def sun_irradiance(img, albedo, sun_el):
+    """The sun's irradiance at right angles to its rays, from a sky-plus-ground render with no venue: the ground near
+    the nadir is lit by the sky's upper hemisphere and the sun, L = albedo (E_sky + S sin EL) / pi, so
+    S = (pi L / albedo - E_sky) / sin EL per channel. Returns {"rgb": [...], "normal": luminance} or None when the sun
+    is at or under the horizon or a channel's albedo is 0."""
+    a = np.asarray(albedo, dtype=np.float64)
+    s = math.sin(math.radians(float(sun_el)))
+    if s <= 0.02 or np.any(a <= 0):
+        return None
+    img = img.astype(np.float64)
+    h, w = img.shape[:2]
+    lat = (0.5 - (np.arange(h) + 0.5) / h) * np.pi
+    up = lat > 0
+    dw = np.cos(lat) * (np.pi / h) * (2 * np.pi / w)                      # solid angle per pixel of each row
+    e_sky = (img[up] * (np.sin(lat[up]) * dw[up])[:, None, None]).sum(axis=(0, 1))
+    ground = img[lat < math.radians(-60)].mean(axis=(0, 1))            # well under the horizon
+    rgb = (math.pi * ground / a - e_sky) / s
+    return {"rgb": [round(float(v), 3) for v in rgb], "normal": round(float(rgb @ REC709), 3)}
+
+
 def box_down(img, w):
     """Box-average a linear map down to width w (the height follows: 2:1). Averages the linear values."""
     h_in, w_in = img.shape[:2]
@@ -538,6 +561,8 @@ def finish(out, args, opts, census):
     warnings = list(summary.get("warnings", [])) + warnings
     main_img = box_down(full, args.size)
     mean_l = mean_luminance(main_img)
+    sun = (sun_irradiance(full, args.ground, args.sun[1])                 # a venue would shade and bounce the ground
+           if args.ground is not None and args.venue is None else None)
     stem = args.name
     hdr = out / f"{stem}_env.hdr"
     write_hdr(hdr, main_img)
@@ -580,6 +605,8 @@ def finish(out, args, opts, census):
         "meanLuminance": round(mean_l, 6),
         "suggestedEnvMapIntensity": round(0.5 / mean_l, 3),
         "intensityFormula": "round(0.5 / meanLuminance, 3)",
+        "sunIrradiance": sun,
+        "sunIntensityRule": ("envMapIntensity = directionalLight.intensity / sunIrradiance.normal" if sun else None),
         "checks": checks,
         "warnings": warnings,
     }
