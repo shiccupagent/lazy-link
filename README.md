@@ -165,11 +165,13 @@ A job waits in the PC's queue: `--wait` (default 3 hours) counts the queue and t
 ```bash
 python3 imagegen/env.py venue.glb --at=0,1.6,0 --out out/env/ --size 512 --also 256       # a venue lit by its own lights
 python3 imagegen/env.py --sky --sun=90,35 --out out/env/                                    # a sky: sun at azimuth 90, 35 up
+python3 imagegen/env.py --sky --sun=90,35 --ground 0.10,0.22,0.06 --out out/env/           # the same sky over sunlit grass
 python3 imagegen/env.py venue.glb --at=0,1.6,0 --sky --sun=-90,20 --turbidity 3 --out out/env/
 ```
 `env` renders an equirectangular panorama with Blender on the PC (its GPU when one is found, else the CPU) and writes `<name>_env.hdr`: linear float Radiance RGBE, so the values stay scene light and are not tone-mapped. three.js loads it with `RGBELoader`. Alongside it: `<name>_env.png` (a preview), `<name>_env.json` (the sidecar), and one extra `.hdr` per `--also` width.
 
-- `--sun=AZ,EL`: AZ 0 is glTF -Z and 90 is +X; EL 0 is the horizon, 90 the zenith. The sun disc is off, so the sun lights the scene without a bright dot in the picture.
+- `--sun=AZ,EL`: AZ 0 is glTF -Z and 90 is +X; EL 0 is the horizon, 90 the zenith. The sun disc is off: the map has the sky's glow around the sun but not the sun itself, so the game's directional light stays the sun and is not counted twice.
+- `--ground R,G,B` (linear albedo 0 to 1, e.g. `0.10,0.22,0.06` for grass) puts a 100 km diffuse plane under the sky, 1.6 m below the camera (or just under a venue's lowest point). The sky and its sun light it, so the ground is as bright as that sky makes it, while the map still shows no sun. Without it the lower half is the sky model's own dark blue-grey, which tints bounce light blue. Not with `--turbidity` (that sky has no sun to light the ground).
 - The sky is Blender's Multiple Scattering model. `--turbidity 1` to `10` switches to Hosek-Wilkie, the only model that reads it.
 - The sidecar's `suggestedEnvMapIntensity` is `round(0.5 / meanLuminance, 3)`, where meanLuminance is the solid-angle-weighted Rec.709 mean of the map. Set `envMapIntensity` to it.
 - Orientation: the centre of the picture looks at +X, a quarter across at -Z, three quarters across at +Z, and both edges at -X. Row 0 is up.

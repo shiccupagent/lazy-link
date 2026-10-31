@@ -14,6 +14,10 @@ options.json (written by env.py; every key present):
   width   render width in pixels; the height is half of it. The file is wider: overscan_px(width) extra columns on each
           side, past 360 degrees, which env.py crops off, so the denoiser's picture border never lands on the wrap seam
   render  file name of the raw render inside OUT_DIR (env.py reads it back)
+  ground  null, or [R, G, B] linear albedo of a ground plane (needs a sky with a sun disc): a 100 km diffuse plane at
+          the venue's lowest point, or GROUND_EYE below the camera without a venue. It is lit by the sky and the sky's
+          own sun disc, which only rays that are not camera rays see, so the map shows no disc but the ground is as
+          bright as that sky and sun make it.
 
 What it does: Cycles on the GPU when one is found (OptiX, then CUDA, then CPU), 256 samples, OpenImageDenoise,
 Standard view transform (no look, exposure 0, gamma 1), float Radiance HDR output so the values stay scene-linear.
@@ -34,9 +38,11 @@ from pathlib import Path
 try:  # Blender provides bpy. Without it (the Mac tests) only the pure helpers below can run.
     import addon_utils
     import bpy
+    from mathutils import Vector
 except ImportError:
     addon_utils = None
     bpy = None
+    Vector = None
 
 SAMPLES = 256
 DENOISER = "OPENIMAGEDENOISE"
@@ -44,6 +50,9 @@ VIEW_TRANSFORM = "Standard"
 CAM_ROT = (math.radians(90.0), 0.0, math.radians(-90.0))
 # The Sky Texture models in the order they are preferred. "Nishita" is Single Scattering in Blender 4 and later.
 SKY_ORDER = ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING", "HOSEK_WILKIE", "PREETHAM")
+DISC_SKIES = ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING")    # the models with a sun disc (--ground needs one)
+GROUND_EYE = 1.6            # metres from a sky-only camera down to the ground plane
+GROUND_HALF = 50000.0       # half the ground plane's side in metres: inside the camera's clip_end
 
 
 # ---------- pure helpers (testable without Blender) ----------
@@ -93,11 +102,11 @@ def parse_args():
         return argv[argv.index(flag) + 1] if flag in argv else default
 
     out = Path(value("--out", "env_out")).resolve()
-    opts = {"venue": None, "at": None, "sky": None, "clamp": 20.0, "width": 512, "render": "render.hdr"}
+    opts = {"venue": None, "at": None, "sky": None, "clamp": 20.0, "width": 512, "render": "render.hdr", "ground": None}
     if value("--options"):
         with open(value("--options")) as f:
             opts.update(json.load(f))
-    unknown = set(opts) - {"venue", "at", "sky", "clamp", "width", "render"}
+    unknown = set(opts) - {"venue", "at", "sky", "clamp", "width", "render", "ground"}
     if unknown:
         raise SystemExit(f"ENV unknown option(s): {sorted(unknown)}")
     return out, opts
@@ -214,9 +223,11 @@ def census(sc):
 
 # ---------- scene ----------
 
-def build_world(sc, sky):
+def build_world(sc, sky, lit_ground=False):
     """sky None: a black world, so only the venue's own lights light it. Otherwise the Sky Texture: the model is
-    picked from this Blender's own list, the sun has no disc (sun_disc off), and its position is set in radians."""
+    picked from this Blender's own list, the sun has no disc (sun_disc off), and its position is set in radians.
+    lit_ground: a second copy of the sky with its sun disc on, seen by every ray except camera rays (Light Path), so
+    the ground plane gets the sun while the map itself still shows no disc."""
     world = bpy.data.worlds.new("EnvWorld")
     world.use_nodes = True
     nt = world.node_tree
@@ -232,19 +243,60 @@ def build_world(sc, sky):
     turbidity = sky.get("turbidity")
     available = [i.identifier for i in bpy.types.ShaderNodeTexSky.bl_rna.properties["sky_type"].enum_items]
     kind = pick_sky_type(available, turbidity)
-    node = nt.nodes.new("ShaderNodeTexSky")
-    node.sky_type = kind
-    node.sun_disc = False
-    node.sun_rotation = math.radians(float(sky["sun_az"]))
-    node.sun_elevation = math.radians(float(sky["sun_el"]))
-    if turbidity is not None:
-        node.turbidity = float(turbidity)
-    nt.links.new(node.outputs["Color"], bg.inputs["Color"])
+    if lit_ground and kind not in DISC_SKIES:
+        raise RuntimeError(f"a ground plane needs a sky with a sun disc ({', '.join(DISC_SKIES)}); this one is {kind}")
+
+    def sky_node(disc):
+        node = nt.nodes.new("ShaderNodeTexSky")
+        node.sky_type = kind
+        node.sun_disc = disc
+        node.sun_rotation = math.radians(float(sky["sun_az"]))
+        node.sun_elevation = math.radians(float(sky["sun_el"]))
+        if turbidity is not None:
+            node.turbidity = float(turbidity)
+        return node
+
+    nt.links.new(sky_node(False).outputs["Color"], bg.inputs["Color"])
     bg.inputs["Strength"].default_value = 1.0
+    if lit_ground:
+        lit = nt.nodes.new("ShaderNodeBackground")
+        nt.links.new(sky_node(True).outputs["Color"], lit.inputs["Color"])
+        lit.inputs["Strength"].default_value = 1.0
+        path = nt.nodes.new("ShaderNodeLightPath")
+        mix = nt.nodes.new("ShaderNodeMixShader")
+        nt.links.new(path.outputs["Is Camera Ray"], mix.inputs["Fac"])
+        nt.links.new(lit.outputs["Background"], mix.inputs[1])     # Fac 0: every other ray sees the disc
+        nt.links.new(bg.outputs["Background"], mix.inputs[2])      # Fac 1: the camera sees no disc
+        nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
     log(f"sky: {kind}, sun az {sky['sun_az']} el {sky['sun_el']}"
         + (f", turbidity {turbidity}" if turbidity is not None else ""))
     return {"skyType": kind, "sunAz": float(sky["sun_az"]), "sunEl": float(sky["sun_el"]),
             "turbidity": None if turbidity is None else float(turbidity), "skyTypesOffered": available}
+
+
+def add_ground(sc, albedo, z):
+    """A flat diffuse plane GROUND_HALF metres from the origin on each side, at height z (Blender up), albedo linear."""
+    h = GROUND_HALF
+    mesh = bpy.data.meshes.new("EnvGround")
+    mesh.from_pydata([(-h, -h, z), (h, -h, z), (h, h, z), (-h, h, z)], [], [(0, 1, 2, 3)])
+    mat = bpy.data.materials.new("EnvGround")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    bsdf = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    bsdf.inputs["Color"].default_value = (*(float(v) for v in albedo), 1.0)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    mesh.materials.append(mat)
+    obj = bpy.data.objects.new("EnvGround", mesh)
+    sc.collection.objects.link(obj)
+    return obj
+
+
+def lowest_z(sc):
+    """The lowest world-space corner of any mesh's bounding box (Blender up), or None with no meshes."""
+    zs = [(o.matrix_world @ Vector(c)).z for o in sc.objects if o.type == "MESH" for c in o.bound_box]
+    return min(zs) if zs else None
 
 
 def build_camera(sc, location, width):
@@ -291,12 +343,16 @@ def main():
                "samples": SAMPLES, "viewTransform": VIEW_TRANSFORM, "look": "None", "exposure": 0.0,
                "gamma": 1.0, "denoiser": DENOISER, "blenderVersion": bpy.app.version_string,
                "skyType": None, "sun": None, "turbidity": None, "device": None, "deviceNames": None,
-               "census": None, "renderFile": opts["render"], "overscan": overscan_px(opts["width"])}
+               "census": None, "renderFile": opts["render"], "overscan": overscan_px(opts["width"]),
+               "ground": None}
     try:
         sc = reset_scene(opts["clamp"])
         summary["device"], summary["deviceNames"] = pick_device(sc)
         set_denoiser(sc)
-        sky = build_world(sc, opts["sky"])
+        ground = opts.get("ground")
+        if ground is not None and opts["sky"] is None:
+            raise RuntimeError("a ground plane needs a sky")
+        sky = build_world(sc, opts["sky"], lit_ground=ground is not None)
         if sky:
             summary.update(skyType=sky["skyType"], sun={"az": sky["sunAz"], "el": sky["sunEl"]},
                            turbidity=sky["turbidity"], skyTypesOffered=sky["skyTypesOffered"])
@@ -316,6 +372,12 @@ def main():
         if sky is not None and opts["venue"] and suns == 0 and lamps == 0 and emissive == 0:
             summary["warnings"].append("venue has no sun, lamp or emissive material: only the sky lights it")
         location = at_to_blender(opts["at"]) if opts["venue"] else (0.0, 0.0, 0.0)
+        if ground is not None:
+            low = lowest_z(sc) if opts["venue"] else None
+            gz = (low - 0.001) if low is not None else location[2] - GROUND_EYE   # just under the venue's floor
+            add_ground(sc, ground, gz)
+            summary["ground"] = {"albedo": [float(v) for v in ground], "blenderZ": round(gz, 4)}
+            log(f"ground: albedo {ground} at Blender z {gz:.3f}")
         build_camera(sc, location, opts["width"])
         log(f"camera at Blender {tuple(round(v, 3) for v in location)}")
         render_to(sc, opts["width"], out / opts["render"])

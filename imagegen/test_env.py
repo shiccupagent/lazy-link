@@ -202,6 +202,14 @@ class OptionTests(EnvCase):
         self.assertIn("--turbidity must be from 1 to 10",
                       self.refused("--sky", "--sun=0,20", "--turbidity", "11", *self.o))
 
+    def test_refuses_ground_without_sky_or_with_turbidity_or_out_of_range(self):
+        self.assertIn("--ground needs --sky",
+                      self.refused(str(self.lit), "--at=0,0,0", "--ground", "0.1,0.2,0.1", *self.o))
+        self.assertIn("Hosek-Wilkie", self.refused("--sky", "--sun=0,20", "--turbidity", "3",
+                                                   "--ground", "0.1,0.2,0.1", *self.o))
+        self.assertIn("from 0 to 1", self.refused("--sky", "--sun=0,20", "--ground", "0.1,1.5,0.1", *self.o))
+        self.assertIn("--ground needs 3 numbers", self.refused("--sky", "--sun=0,20", "--ground", "0.1,0.2", *self.o))
+
     def test_refuses_bad_sun(self):
         with self.subTest("elevation above the zenith"):
             self.assertIn("between -90 and 90", self.refused("--sky", "--sun=0,95", *self.o))
@@ -336,7 +344,7 @@ class JobTests(EnvCase):
         self.assertEqual(pc.job_files["venue.glb"], self.lit.read_bytes())
         opts = json.loads(pc.job_files["options.json"])
         self.assertEqual(opts, {"venue": "venue.glb", "at": [0.0, 0.0, 0.0], "sky": None, "clamp": 20.0,
-                                "width": 64, "render": "render.hdr"})
+                                "width": 64, "render": "render.hdr", "ground": None})
         self.assertIn("--options options.json --out $env:RENDER_OUT", pc.job_ps1)
 
     def test_job_folder_for_sky_only(self):
@@ -355,6 +363,19 @@ class JobTests(EnvCase):
         opts = json.loads(pc.job_files["options.json"])
         self.assertEqual(opts["sky"], {"sun_az": 0.0, "sun_el": 20.0, "turbidity": 3.0})
         self.assertIn("venue.glb", pc.job_files)
+
+
+    def test_job_folder_and_sidecar_carry_the_ground(self):
+        ground = {"albedo": [0.1, 0.22, 0.06], "blenderZ": -1.6}
+        pc = self.fake_pc(state="done", summary=ok_summary(ground=ground), render=periodic_render())
+        side = env.run(env.parse_args(["--sky", "--sun=-143,51", "--ground", "0.10,0.22,0.06", "--size", "64",
+                                       *self.o]))
+        self.assertEqual(json.loads(pc.job_files["options.json"])["ground"], [0.1, 0.22, 0.06])
+        self.assertEqual(side["ground"], ground)
+
+    def test_the_pc_script_refuses_a_ground_on_a_sky_without_a_disc(self):
+        self.assertEqual(EB.DISC_SKIES, ("MULTIPLE_SCATTERING", "SINGLE_SCATTERING"))
+        self.assertNotIn("HOSEK_WILKIE", EB.DISC_SKIES)
 
 
 class RunOutcomeTests(EnvCase):

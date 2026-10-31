@@ -2,7 +2,7 @@
 """env - equirectangular HDR environment maps for three.js lighting and reflections, rendered by Blender on the PC.
 
   python3 imagegen/env.py VENUE.glb --at=x,y,z --out DIR [--sky --sun=AZ,EL [--turbidity T]] [--name NAME]
-  python3 imagegen/env.py --sky --sun=AZ,EL --out DIR [--turbidity T] [--name NAME]
+  python3 imagegen/env.py --sky --sun=AZ,EL --out DIR [--turbidity T | --ground R,G,B] [--name NAME]
                   [--clamp 20] [--size 512] [--also 256,1024] [--timeout S] [--wait S]
 
 Use the = form for negative values (--at=-1,2,3, --sun=-90,20): argparse reads a bare -1 as an option.
@@ -10,6 +10,10 @@ Use the = form for negative values (--at=-1,2,3, --sun=-90,20): argparse reads a
 A venue is lit by its own lights (suns, lamps, emissive materials) and seen from --at, in the .glb's own units.
 --sky adds a Sky Texture; with no venue the camera sits at the origin. Both together light the venue with the sky too.
 A venue with no light and no --sky is refused before anything is sent.
+--ground R,G,B (linear albedo, 0 to 1, e.g. 0.10,0.22,0.06 for grass; needs --sky, not --turbidity) puts a 100 km
+diffuse plane under the sky: 1.6 m below the camera with no venue, just under the venue's lowest point with one. The
+sky's sun lights it, so its brightness follows the sky; the map itself still shows no sun disc. Without it the lower
+half is the sky model's own dark ground, which tints bounce light blue.
 
 DIR gets <name>_env.hdr (Radiance RGBE, linear float: the --size map), <name>_env.png (preview, Reinhard then sRGB,
 top is up), <name>_env.json (the sidecar: how it was made, the checks, suggestedEnvMapIntensity) and
@@ -42,7 +46,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 from pcsubmit import load_imagegen, submit
 
-TOOL_VERSION = "1.1.0"
+TOOL_VERSION = "1.2.0"
 PC_SCRIPT = HERE / "pc" / "env_blender.py"
 RENDER_FILE = "render.hdr"          # the raw render's name inside the job's output folder (options "render")
 DEFAULT_SIZE = 512
@@ -96,6 +100,8 @@ def parse_args(argv=None):
     ap.add_argument("--sun", metavar="AZ,EL",
                     help="sun direction in degrees: AZ 0 = glTF -Z, 90 = +X; EL 0 = horizon, 90 = zenith")
     ap.add_argument("--turbidity", type=float, help="sky haziness, 1 to 10 (forces the Hosek-Wilkie sky)")
+    ap.add_argument("--ground", metavar="R,G,B",
+                    help="linear albedo (0 to 1 each) of a sunlit ground plane under the sky; needs --sky")
     ap.add_argument("--clamp", type=float, default=DEFAULT_CLAMP,
                     help="Cycles indirect light clamp; 0 = no clamp (default 20)")
     ap.add_argument("--size", type=int, default=DEFAULT_SIZE,
@@ -139,11 +145,19 @@ def normalize(ap, args):
                 lo, hi = TURBIDITY_RANGE
                 if not (math.isfinite(args.turbidity) and lo <= args.turbidity <= hi):
                     refuse(f"--turbidity must be from {lo:g} to {hi:g}, got {args.turbidity}")
+            if args.ground is not None:
+                if args.turbidity is not None:
+                    refuse("--ground needs the sun disc of the default sky; the --turbidity sky (Hosek-Wilkie) has none")
+                args.ground = _numbers(args.ground, 3, "--ground")
+                if not all(0.0 <= v <= 1.0 for v in args.ground):
+                    refuse(f"--ground values are linear albedo from 0 to 1, got {args.ground}")
         else:
             if args.sun is not None:
                 refuse("--sun needs --sky")
             if args.turbidity is not None:
                 refuse("--turbidity needs --sky")
+            if args.ground is not None:
+                refuse("--ground needs --sky (the sky's sun lights it)")
     except ValueError as e:
         refuse(str(e))
     if not (math.isfinite(args.clamp) and args.clamp >= 0):
@@ -251,6 +265,7 @@ def build_job(args, workdir):
         "clamp": float(args.clamp),
         "width": int(args.render_width),
         "render": RENDER_FILE,
+        "ground": args.ground,
     }
     opts_path = Path(workdir) / "options.json"
     opts_path.write_text(json.dumps(opts, indent=1))
@@ -544,6 +559,7 @@ def finish(out, args, opts, census):
                  "skyType": summary.get("skyType"), "skyTypesOffered": summary.get("skyTypesOffered")}
                 if args.sky else None),
         "census": census,
+        "ground": summary.get("ground") if args.ground is not None else None,
         "viewTransform": summary.get("viewTransform"),
         "look": summary.get("look"),
         "exposure": summary.get("exposure"),
