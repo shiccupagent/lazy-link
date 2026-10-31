@@ -161,6 +161,21 @@ Materials: only a texture can make a surface transparent (leaves, cutouts). A fa
 
 A job waits in the PC's queue: `--wait` (default 3 hours) counts the queue and the run, and the queue position prints while it waits. Other options (`--opt budget=2048`, `samples`, `lights`, ...) are listed in the header of `imagegen/pc/bake_blender.py`.
 
+### Make a lighting map for three.js: a venue, a sky, or both (Windows PC)
+```bash
+python3 imagegen/env.py venue.glb --at=0,1.6,0 --out out/env/ --size 512 --also 256       # a venue lit by its own lights
+python3 imagegen/env.py --sky --sun=90,35 --out out/env/                                    # a sky: sun at azimuth 90, 35 up
+python3 imagegen/env.py venue.glb --at=0,1.6,0 --sky --sun=-90,20 --turbidity 3 --out out/env/
+```
+`env` renders an equirectangular panorama with Blender on the PC (its GPU when one is found, else the CPU) and writes `<name>_env.hdr`: linear float Radiance RGBE, so the values stay scene light and are not tone-mapped. three.js loads it with `RGBELoader`. Alongside it: `<name>_env.png` (a preview), `<name>_env.json` (the sidecar), and one extra `.hdr` per `--also` width.
+
+- `--sun=AZ,EL`: AZ 0 is glTF -Z and 90 is +X; EL 0 is the horizon, 90 the zenith. The sun disc is off, so the sun lights the scene without a bright dot in the picture.
+- The sky is Blender's Multiple Scattering model. `--turbidity 1` to `10` switches to Hosek-Wilkie, the only model that reads it.
+- The sidecar's `suggestedEnvMapIntensity` is `round(0.5 / meanLuminance, 3)`, where meanLuminance is the solid-angle-weighted Rec.709 mean of the map. Set `envMapIntensity` to it.
+- Orientation: the centre of the picture looks at +X, a quarter across at -Z, three quarters across at +Z, and both edges at -X. Row 0 is up.
+- A render that fails its checks (nearly black, flat, wrong aspect, or left and right edges that do not meet) writes no `.hdr`; the raw render is kept beside it. The seam check looks only at the left-right wrap, since the poles are not neighbours. Its thresholds (warn 2.0, fail 4.0) are provisional until a real PC render is checked.
+- Windows PC only for now: other PCs are refused before anything is sent. A venue with no light and no `--sky` is refused too.
+
 ### Copy your own voice (Windows PC)
 ```bash
 ./voice/install.py          # puts a "Record voices" icon on the PC's desktop

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """bake - light maps and ambient occlusion for a .glb, baked on the PC's NVIDIA GPU with Blender (Cycles).
 Windows PC only for now: other PCs are refused before anything is woken or sent.
-The Mac side sends the job with its own _submit, not imagegen.send: it waits in the PC's queue, fetches the
-results, and dequeues or cancels the job if it stops early. pc/bake_blender.py does the work on the PC.
+The Mac side sends the job with pcsubmit.submit (shared with env.py, not imagegen.send): it waits in the PC's queue,
+fetches the results, and dequeues or cancels the job if it stops early. pc/bake_blender.py does the work on the PC.
 
   from bake import bake
   summary = bake("MODEL.glb", "out/")            # glb=None bakes the built-in test room
@@ -34,14 +34,15 @@ A job that waits in the PC's queue is normal: bake waits up to --wait seconds in
 prints how many jobs are ahead, then gives the run its own --timeout and fetches the results.
 """
 import argparse
-import importlib.util
 import json
-import shutil
 import sys
 import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+from pcsubmit import load_imagegen, submit
 DEFAULT_TIMEOUT = 1800       # PC-side Blender limit for one bake
 WAIT_LIMIT = 3 * 3600        # seconds bake waits in the PC's queue before it gives up (the run has its own --timeout)
 MODES = ("full", "hybrid")
@@ -61,12 +62,7 @@ PS1 = ("$ErrorActionPreference = 'Continue'\n"
 
 
 def _imagegen():
-    """imagegen.py is loaded by path: this package folder is also named imagegen, so a plain import
-    can resolve to the folder instead of the module."""
-    spec = importlib.util.spec_from_file_location("imagegen_cli", HERE / "imagegen.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    return load_imagegen()
 
 
 def _failure_reason(out):
@@ -85,41 +81,8 @@ def _failure_reason(out):
 
 
 def _submit(ig, files, ps1, out, timeout, wait):
-    """Send the bake job, wait for it (pcjob's wait: up to `wait` seconds in the queue, then the run's own
-    limit), fetch the results into `out`, and remove the PC job folder. If bake stops early, the job is
-    dequeued (or cancelled while it runs) so nothing is left behind."""
-    pc = ig.load_pcjob()
-    woke = pc.wake()
-    job_id = None
-    busy = False
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            job = Path(td) / "job"
-            job.mkdir()
-            for src, rel in files:
-                (job / rel).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy(src, job / rel)
-            (job / "job.ps1").write_text(ps1)
-            job_id = pc.cmd_run(argparse.Namespace(dir=str(job), name="bake", timeout=timeout,
-                                                   wait=False, fetch=None))
-        state = pc.cmd_wait(argparse.Namespace(id=job_id, max=timeout + 300, queue_max=wait))["state"]
-        pc.cmd_fetch(argparse.Namespace(id=job_id, dest=str(out)))   # log and blender.log come back even on failure
-        pc.cmd_rm(argparse.Namespace(id=job_id))
-        job_id = None
-        if state != "done":
-            sys.exit(_failure_reason(out) or f"bake: the PC job ended as {state}; see {out / 'blender.log'}")
-    finally:
-        if job_id is not None:   # stopped early: take our own job off the queue, or cancel it if it runs
-            state = pc.status(job_id)["state"]
-            if state == "queued":
-                pc.cmd_rm(argparse.Namespace(id=job_id))
-                print(f"bake: {job_id} removed from the PC queue", flush=True)
-            elif state == "running":
-                pc.cmd_cancel(argparse.Namespace(id=job_id))
-                busy = True   # never sleep the PC under a job that is still running
-                print(f"bake: cancel sent to running job {job_id}; the PC stays on", flush=True)
-        if not busy:
-            pc.release(woke)   # back to sleep if we woke it and nobody is on it
+    """Send the bake job through the shared helper (pcsubmit.submit) with bake's name and failure text."""
+    submit(ig, files, ps1, out, timeout, wait, name="bake", label="bake", on_fail=_failure_reason)
 
 
 def bake(glb, out, timeout=DEFAULT_TIMEOUT, wait=WAIT_LIMIT, **opts):
