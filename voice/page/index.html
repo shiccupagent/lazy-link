@@ -121,7 +121,8 @@ function nextOpen() {   // after a good take: the next unrecorded line, in this 
   const v = voice(), i = v.lines.findIndex((l, k) => k > li && !l.done);
   if (i >= 0) { li = i; return; }
   if (left(v) > 0) { li = v.lines.findIndex((l) => !l.done); return; }
-  firstOpen();
+  if (S.voices.some((x) => left(x) > 0)) { firstOpen(); return; }
+  if (li + 1 < v.lines.length) li++;   // everything recorded: a re-record session steps line by line
 }
 
 async function startMic(deviceId) {
