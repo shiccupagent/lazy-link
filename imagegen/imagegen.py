@@ -216,17 +216,17 @@ def main():
                             names.append((f"{f.stem}{key}", f"{f.stem}{key}.png"))
             asks.write_text(json.dumps([{"name": n, "image": i} for n, i in names]))
             make("maps", asks, Path(td) / "maps", a.timeout)
-            m = Path(td) / "maps"   # make saves <name>__maps.png (normal) and <name>__maps-1.png (depth)
+            m = Path(td) / "maps"   # make saves <name>__maps.png (normal) and <name>__maps-1.png (depth, unused since bump v3)
             for f in pics:
-                own = (m / f"{f.stem}__maps.png", m / f"{f.stem}__maps-1.png")
+                own = m / f"{f.stem}__maps.png"
                 if a.object:
-                    bumpmaps.finish_object(f, Path(td) / f"{f.stem}.png", own[0], out, f.stem)
+                    bumpmaps.finish_object(f, Path(td) / f"{f.stem}.png", own, out, f.stem)
                     print(f"bump: {out / (f.stem + '_normal.png')}")
                     continue
                 if a.tile:
-                    before, after = bumpmaps.finish_tiled(f, {k: (m / f"{f.stem}{k}__maps.png", m / f"{f.stem}{k}__maps-1.png") for k in bumpmaps.SHIFTS}, out, f.stem, a.slope)
+                    before, after = bumpmaps.finish_tiled(f, {k: m / f"{f.stem}{k}__maps.png" for k in bumpmaps.SHIFTS}, out, f.stem, a.slope)
                 else:
-                    before, after = bumpmaps.finish(f, *own, out, f.stem, a.slope)
+                    before, after = bumpmaps.finish(f, own, out, f.stem, a.slope)
                 slope = f"slope {before:.2f}" + (f" -> {after:.2f}" if abs(after - before) > 0.005 else "")
                 print(f"bump: {out / (f.stem + '_normal.png')} (+ _height, _ao)  {slope}")
                 if after < bumpmaps.SLOPE_LOW:

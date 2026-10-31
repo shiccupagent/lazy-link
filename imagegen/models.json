@@ -331,7 +331,7 @@
    "_min_vram_note": "check.py estimate: 3D needs far more working memory than its files; measured only on a 24 GB card"
   },
   "maps": {
-   "version": 2,
+   "version": 3,
    "label": "MoGe-2 (picture to normal map + depth)",
    "licence": "MIT: any commercial use (the model the mesh recipe already ships)",
    "template": "moge_maps",

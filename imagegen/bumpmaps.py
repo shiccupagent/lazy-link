@@ -6,6 +6,7 @@ Needs numpy, scipy and Pillow on the computer that runs it (the Mac side; the PC
   classic(rgb)        -> height, normal from the picture's light/dark detail (alone it turns colour specks into fake bumps)
   moge_detail(normal) -> MoGe's normal map with any overall tilt removed (MoGe reads a texture as a camera photo)
   combo(moge, classic)-> the default style
+  height_from_normal(n) -> the height map, integrated from the finished normal map (so height, AO and normals agree)
   ambient_occlusion(h) -> darkens the hollows of the height map (cavity), for three.js aoMap
 A tiled texture (imagegen.py tile) gets maps that wrap too: finish_tiled() runs on MoGe's maps of the picture and of
 the picture moved by half across, down and both (SHIFTS), using each where its own edges are far away.
@@ -17,7 +18,8 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import gaussian_filter, sobel
 
-VERSION = 2          # bump when the style below changes; models.json "maps" version follows it
+VERSION = 3          # bump when the style below changes; models.json "maps" version follows it
+                     # 3: height and AO from the normal map, not MoGe's depth (2026-10-30)
 MOGE_DEPTH = 1.6     # MoGe's shapes made this much deeper
 FINE = 0.45          # share of the picture's fine detail added on top
 CLASSIC_SLOPE = 0.8  # gentle: a stronger slope turns colour specks into fake bumps
@@ -40,8 +42,8 @@ def unit(n):
     return n / np.linalg.norm(n, axis=2, keepdims=True)
 
 
-def high_pass(h, sigma):
-    h = h - gaussian_filter(h, sigma, mode="wrap")
+def high_pass(h, sigma, mode="wrap"):
+    h = h - gaussian_filter(h, sigma, mode=mode)
     lo, hi = np.percentile(h, [1, 99])
     return np.clip((h - lo) / (hi - lo + 1e-9), 0, 1)
 
@@ -67,6 +69,28 @@ def combo(moge_n, classic_n):
     return unit(moge_n * [MOGE_DEPTH, MOGE_DEPTH, 1] + (classic_n - [0, 0, 1]) * [FINE, FINE, 0])
 
 
+def height_from_normal(n, wrap):
+    """Height 0-1 integrated from a normal map: the surface whose slopes best match the normals (Frankot-Chellappa,
+    solved in Fourier space). Exact for a seamless picture; otherwise the picture is mirrored to 2 x 2 first so its
+    edges meet. Why not MoGe's own depth: on flat-painted and scanned surfaces it is mostly slow drift, and its fine
+    detail barely matches its own normals (machining chat 2026-10-30: 88-95% drift, correlation 0.00-0.15), so the
+    height and AO came out near blank while the normal map was good."""
+    nz = np.maximum(n[..., 2], 0.2)
+    p = -n[..., 0] / nz          # height change along a row (OpenGL: +X right)
+    q = n[..., 1] / nz           # height change down a column (+Y is up the picture, rows run down)
+    rows, cols = p.shape
+    if not wrap:                 # mirror: a slope flips sign in the mirrored copy along its own axis
+        p = np.block([[p, -p[:, ::-1]], [p[::-1], -p[::-1, ::-1]]])
+        q = np.block([[q, q[:, ::-1]], [-q[::-1], -q[::-1, ::-1]]])
+    u = 2j * np.pi * np.fft.fftfreq(p.shape[1])[None, :]
+    v = 2j * np.pi * np.fft.fftfreq(p.shape[0])[:, None]
+    denom = np.abs(u) ** 2 + np.abs(v) ** 2
+    denom[0, 0] = 1
+    z = (np.conj(u) * np.fft.fft2(p) + np.conj(v) * np.fft.fft2(q)) / denom
+    z[0, 0] = 0
+    return np.fft.ifft2(z).real[:rows, :cols]
+
+
 def ambient_occlusion(h, mode="nearest"):
     cavity = np.clip(gaussian_filter(h, 6, mode=mode) - h, 0, None) + 0.5 * np.clip(gaussian_filter(h, 24, mode=mode) - h, 0, None)
     return np.clip(1 - AO_STRENGTH * cavity, AO_FLOOR, 1)
@@ -85,10 +109,11 @@ def steepen(n, target):
     return n if g <= 1 else unit(n * [g, g, 1])
 
 
-def write(cn, moge_n, height, out_dir, name, mode, slope=None):
+def write(cn, moge_n, out_dir, name, mode, slope=None):
     """Returns the normal map's mean slope (before, after --slope)."""
     n = combo(moge_detail(moge_n, mode), cn)
     before = mean_slope(n)
+    height = high_pass(height_from_normal(n, mode == "wrap"), 32, mode)   # before --slope: the same shape either way
     if slope:
         n = steepen(n, slope)
     save(n * 0.5 + 0.5, out_dir / f"{name}_normal.png")
@@ -97,10 +122,10 @@ def write(cn, moge_n, height, out_dir, name, mode, slope=None):
     return before, mean_slope(n)
 
 
-def finish(picture, moge_normal_png, moge_depth_png, out_dir, name, slope=None):
-    """Writes out_dir/<name>_normal.png (the default style), _height.png (MoGe depth, detail only) and _ao.png."""
+def finish(picture, moge_normal_png, out_dir, name, slope=None):
+    """Writes out_dir/<name>_normal.png (the default style), _height.png (integrated from it, detail only) and _ao.png."""
     _, cn = classic(load(picture))
-    return write(cn, load(moge_normal_png) * 2 - 1, high_pass(load(moge_depth_png)[..., 0], 32), out_dir, name, "nearest", slope)
+    return write(cn, load(moge_normal_png) * 2 - 1, out_dir, name, "nearest", slope)
 
 
 SHIFTS = {"": (0, 0), "__sx": (0, 1), "__sy": (1, 0), "__sxy": (1, 1)}   # bump --tile: the picture moved by half (rows, columns)
@@ -113,21 +138,20 @@ def shifted(a, sy, sx, back=False):
 
 
 def finish_tiled(picture, maps, out_dir, name, slope=None):
-    """Like finish() for a seamless texture. maps[key] = (normal png, depth png) for the picture moved by half as
+    """Like finish() for a seamless texture. maps[key] = MoGe's normal png for the picture moved by half as
     SHIFTS[key] says: each run is wrong near its own edges, so every spot is taken from the runs where it sits far
     from an edge (weight sin^2 of the position per axis: 1 in the middle, 0 at the edges; the moved run gets cos^2,
     0 where its own edges are). Two runs are not enough: at the middle of the top edge the unmoved run is at its top
-    edge and the run moved both ways at its left edge (a hard line through the brick's height map)."""
+    edge and the run moved both ways at its left edge (a hard line through the brick's normal map)."""
     _, cn = classic(load(picture))
-    n_sum = d_sum = 0
+    n_sum = 0
     for key, (sy, sx) in SHIFTS.items():
-        n = shifted(load(maps[key][0]) * 2 - 1, sy, sx, back=True)
-        d = shifted(high_pass(load(maps[key][1])[..., 0], 32), sy, sx, back=True)
-        h, w = d.shape
+        n = shifted(load(maps[key]) * 2 - 1, sy, sx, back=True)
+        h, w = n.shape[:2]
         ay, ax = np.sin(np.pi * (np.arange(h) + 0.5) / h) ** 2, np.sin(np.pi * (np.arange(w) + 0.5) / w) ** 2
         k = np.outer(1 - ay if sy else ay, 1 - ax if sx else ax)
-        n_sum, d_sum = n_sum + k[..., None] * n, d_sum + k * d
-    return write(cn, unit(n_sum), d_sum, out_dir, name, "wrap", slope)
+        n_sum = n_sum + k[..., None] * n
+    return write(cn, unit(n_sum), out_dir, name, "wrap", slope)
 
 
 OBJECT_FINE = 0.25   # objects: share of the classic fine detail on top of MoGe's whole shape (more turns paint grain into blotches)
