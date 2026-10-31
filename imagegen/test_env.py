@@ -386,7 +386,8 @@ class JobTests(EnvCase):
         self.assertIn("directionalLight.intensity", side["sunIntensityRule"])
 
     def test_job_folder_and_sidecar_carry_the_lights_mode_and_extras(self):
-        extras = {"dropRoots": ["blobs"], "dropped": 3, "lightOnly": ["panel"], "unknown": []}
+        extras = {"dropRoots": ["blobs"], "dropped": 3, "lightOnly": ["panel"], "castShadowOff": ["floor"],
+                  "unknown": []}
         pc = self.fake_pc(state="done", summary=ok_summary(lightingMode="COMPAT", extras=extras),
                           render=periodic_render())
         side = env.run(env.parse_args([str(self.lit), "--at=0,0,0", "--lights", "three", "--size", "64", *self.o]))
@@ -524,6 +525,24 @@ class OutputTests(EnvCase):
                 side = env.run(self.sky_args_plain())
                 self.assertAlmostEqual(side["suggestedEnvMapIntensity"], expect, delta=0.01)
                 self.assertAlmostEqual(side["meanLuminance"], mean, delta=0.005)
+
+    def test_three_sidecar_is_calibrated_to_the_game_and_keeps_the_mean_number(self):
+        self.fake_pc(state="done", summary=ok_summary(lightingMode="COMPAT"), render=periodic_render(mean=0.25))
+        side = env.run(env.parse_args([str(self.lit), "--at=0,0,0", "--lights", "three", "--size", "64",
+                                       "--name", "t", *self.o]))
+        self.assertEqual(side["suggestedEnvMapIntensity"], 1.0)
+        self.assertIs(side["calibratedToGame"], True)
+        self.assertAlmostEqual(side["meanBasedEnvMapIntensity"], 2.0, delta=0.01)
+        self.assertAlmostEqual(side["meanLuminance"], 0.25, delta=0.005)
+        self.assertIn("game's light units", side["intensityFormula"])
+
+    def test_standard_sidecar_keeps_the_mean_intensity_with_no_calibration_keys(self):
+        self.fake_pc(state="done", summary=ok_summary(), render=periodic_render(mean=0.25))
+        side = env.run(env.parse_args([str(self.lit), "--at=0,0,0", "--size", "64", "--name", "t", *self.o]))
+        self.assertAlmostEqual(side["suggestedEnvMapIntensity"], 2.0, delta=0.01)
+        self.assertEqual(side["intensityFormula"], "round(0.5 / meanLuminance, 3)")
+        self.assertNotIn("calibratedToGame", side)
+        self.assertNotIn("meanBasedEnvMapIntensity", side)
 
     def sky_args_plain(self):
         return env.parse_args(["--sky", "--sun=90,35", "--size", "64", "--name", "t", *self.o])
@@ -756,12 +775,17 @@ class SkyAndCameraTests(unittest.TestCase):
 
 
 class FakeObject:
-    """A stand-in for a Blender object: a name, custom properties, children and visible_camera."""
-    def __init__(self, name, env=None, parent=None):
+    """A stand-in for a Blender object: a name, custom properties, children, visible_camera and visible_shadow."""
+    def __init__(self, name, env=None, parent=None, cast_shadow=None):
         self.name = name
-        self.props = {} if env is None else {"env": env}
+        self.props = {}
+        if env is not None:
+            self.props["env"] = env
+        if cast_shadow is not None:
+            self.props["castShadow"] = cast_shadow
         self.children = []
         self.visible_camera = True
+        self.visible_shadow = True
         if parent is not None:
             parent.children.append(self)
 
@@ -809,7 +833,7 @@ class LightsAndExtrasTests(EnvCase):
         self.assertFalse(panel.visible_camera)
         self.assertTrue(plain.visible_camera)
         self.assertEqual(result, {"dropRoots": ["blobs", "vignette"], "dropped": 4, "lightOnly": ["panel"],
-                                  "unknown": [("lamp", "keep")]})
+                                  "castShadowOff": [], "unknown": [("lamp", "keep")]})
 
     def test_a_light_only_object_under_a_drop_is_removed_once_not_hidden(self):
         root = FakeObject("root", "drop")
@@ -825,7 +849,45 @@ class LightsAndExtrasTests(EnvCase):
         removed = []
         result = EB.apply_extras([FakeObject("a"), FakeObject("b")], removed.append)
         self.assertEqual(removed, [])
-        self.assertEqual(result, {"dropRoots": [], "dropped": 0, "lightOnly": [], "unknown": []})
+        self.assertEqual(result, {"dropRoots": [], "dropped": 0, "lightOnly": [], "castShadowOff": [], "unknown": []})
+
+    def test_cast_shadow_off_is_only_a_json_false(self):
+        self.assertTrue(EB.cast_shadow_off(False))
+        for value in (True, None, 0, 0.0, "false"):
+            with self.subTest(value=value):
+                self.assertFalse(EB.cast_shadow_off(value))
+
+    def test_cast_shadow_false_switches_the_shadow_off_and_is_counted(self):
+        floor = FakeObject("floor", cast_shadow=False)
+        wall = FakeObject("wall", cast_shadow=True)
+        plain = FakeObject("plain")
+        text = FakeObject("text", cast_shadow="false")
+        removed = []
+        result = EB.apply_extras([floor, wall, plain, text], removed.append)
+        self.assertEqual(removed, [])
+        self.assertFalse(floor.visible_shadow)
+        self.assertTrue(floor.visible_camera)          # still seen: the two switches are separate
+        self.assertTrue(wall.visible_shadow)
+        self.assertTrue(plain.visible_shadow)
+        self.assertTrue(text.visible_shadow)
+        self.assertEqual(result["castShadowOff"], ["floor"])
+
+    def test_cast_shadow_and_light_only_on_one_object_apply_both(self):
+        panel = FakeObject("panel", "light-only", cast_shadow=False)
+        result = EB.apply_extras([panel], lambda o: None)
+        self.assertFalse(panel.visible_camera)
+        self.assertFalse(panel.visible_shadow)
+        self.assertEqual(result["lightOnly"], ["panel"])
+        self.assertEqual(result["castShadowOff"], ["panel"])
+
+    def test_a_cast_shadow_false_object_under_a_drop_is_removed_and_not_counted(self):
+        root = FakeObject("root", "drop")
+        inner = FakeObject("inner", cast_shadow=False, parent=root)
+        removed = []
+        result = EB.apply_extras([root, inner], removed.append)
+        self.assertEqual([o.name for o in removed], ["root", "inner"])
+        self.assertEqual(result["castShadowOff"], [])
+        self.assertTrue(inner.visible_shadow)
 
 
 if __name__ == "__main__":

@@ -190,7 +190,10 @@ python3 imagegen/env.py venue.glb --lights three --at=0,1.7,14 --size 2048 --als
 - `userData.env` on a node (exported as glTF extras) acts on that node and everything under it:
   - `"drop"` deletes the node and its subtree before the render, GPU-instanced copies included. Use it for editor-only helpers such as blob shadows or vignette cards.
   - `"light-only"` keeps the object so it still lights the scene, but turns off its visibility to the camera. Use it for a sky panel that should bounce light without showing in the picture.
-  - Any other value is ignored and reported as a warning. The counts go in the sidecar's `extras`: `dropRoots`, `dropped`, `lightOnly` and `unknown`.
+  - Any other value is ignored and reported as a warning.
+- `userData.castShadow` (the exporter writes `mesh.castShadow` on every mesh) sets whether the object casts a shadow. `false` switches its shadow off (Blender's `visible_shadow`): the object still lights the scene and shows in the picture, but casts no shadow. Cycles casts from every mesh, while the game casts only from its castShadow meshes, so the map matches the game only when the non-casting meshes are marked.
+- The counts go in the sidecar's `extras`: `dropRoots`, `dropped`, `lightOnly`, `castShadowOff` and `unknown`.
+- `--lights three` sets `suggestedEnvMapIntensity` to 1.0 with `"calibratedToGame": true`, because the map is already in the game's light units and the mean-based scale does not apply. The mean-based number stays in the sidecar as `meanBasedEnvMapIntensity`.
 - Each DirectionalLight needs its target parented to it at (0, 0, -1). The glTF light points along its own -Z and the exporter writes no target, so without this the sun in Blender does not point where the three.js light does:
 
 ```js

@@ -34,7 +34,8 @@ Outputs in OUT_DIR: the raw render (options "render"), summary.json, and one std
 Extras: a venue node's extras "env" (three.js userData.env, exported as extras.env) is applied after the import and
 before the census. "drop" deletes the object and everything parented under it (GPU instances hang under the node that
 carries them). "light-only" sets visible_camera False: the object still lights the scene but is not seen. Any other
-value is a warning and is ignored. Counts go to summary.json.
+value is a warning and is ignored. Extras castShadow (three.js mesh.castShadow, exported as userData.castShadow) false
+sets visible_shadow False: the object still lights and shows, but casts no shadow, as in the game. Counts go to summary.json.
 
 The job fails with "status": "failed" before rendering when there is no sky and no light (no sun or lamp above zero,
 no emissive material that reaches the output).
@@ -128,11 +129,18 @@ def _subtree(obj):
     return out
 
 
+def cast_shadow_off(value):
+    """True only for a JSON false. The game casts shadows only from castShadow meshes, so a false turns the shadow off."""
+    return value is False
+
+
 def apply_extras(objects, remove):
-    """Applies each object's custom property "env" (a glTF node's extras, copied across by the importer). "drop" removes
-    the object and its whole subtree through remove(obj). "light-only" sets visible_camera False, so the object still
-    lights the scene. Returns the counts and names for the summary.
-    objects: the imported objects, or stand-ins with name, get(), children and visible_camera (the Mac tests)."""
+    """Applies each object's custom properties "env" and "castShadow" (a glTF node's extras, copied across by the
+    importer). "drop" removes the object and its whole subtree through remove(obj). "light-only" sets visible_camera
+    False, so the object still lights the scene. castShadow false sets visible_shadow False: it lights and shows but
+    casts no shadow. Returns the counts and names for the summary.
+    objects: the imported objects, or stand-ins with name, get(), children, visible_camera and visible_shadow (the Mac
+    tests)."""
     objs = list(objects)
     actions, unknown = {}, []
     for obj in objs:
@@ -155,9 +163,15 @@ def apply_extras(objects, remove):
         if obj.name not in doomed and actions.get(obj.name) == "light-only":
             obj.visible_camera = False
             light_only.append(obj.name)
+    shadow_off = []
+    for obj in objs:
+        if obj.name not in doomed and cast_shadow_off(obj.get("castShadow")):
+            obj.visible_shadow = False
+            shadow_off.append(obj.name)
     for o in doomed.values():
         remove(o)
-    return {"dropRoots": drop_roots, "dropped": len(doomed), "lightOnly": light_only, "unknown": unknown}
+    return {"dropRoots": drop_roots, "dropped": len(doomed), "lightOnly": light_only, "castShadowOff": shadow_off,
+            "unknown": unknown}
 
 
 # ---------- Blender helpers (copies of the bake's light census; bake_blender.py is left as it is) ----------
@@ -441,7 +455,8 @@ def main():
             for name, raw in summary["extras"]["unknown"]:
                 summary["warnings"].append(f"extras: {name} has env={raw!r}, not one of {list(EXTRA_ACTIONS)}; ignored")
             ex = summary["extras"]
-            log(f"extras: dropped {ex['dropped']} object(s) under {ex['dropRoots']}, light-only {ex['lightOnly']}")
+            log(f"extras: dropped {ex['dropped']} object(s) under {ex['dropRoots']}, light-only {ex['lightOnly']}, "
+                f"castShadow off on {len(ex['castShadowOff'])}")
         suns, lamps, emissive = census(sc)
         summary["census"] = {"suns": suns, "lamps": lamps, "emissive": emissive, "sky": sky is not None}
         log(f"light: {suns} sun, {lamps} lamps, {emissive} emissive, sky {'on' if sky else 'off'}")

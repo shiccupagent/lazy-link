@@ -16,7 +16,9 @@ GLTFExporter writes: a sun's I is a sun strength of I, and a point or spot's can
 gives the same light as three.js. Emissive materials are the same either way. Needs a venue (see the venue section of
 README.md, "Venues exported from three.js").
 A venue node's extras "env" (userData.env in three.js): "drop" removes the object and its children before the render;
-"light-only" keeps it lighting the scene but not in view. Counts go to the sidecar's "extras".
+"light-only" keeps it lighting the scene but not in view. The exporter writes userData.castShadow (mesh.castShadow) on
+every mesh; false turns that object's shadow off (the game casts only from castShadow meshes; Cycles casts from all).
+Counts go to the sidecar's "extras".
 --ground R,G,B (linear albedo, 0 to 1, e.g. 0.10,0.22,0.06 for grass; needs --sky, not --turbidity) puts a 100 km
 diffuse plane under the sky: 1.6 m below the camera with no venue, just under the venue's lowest point with one. The
 sky's sun lights it, so its brightness follows the sky; the map itself still shows no sun disc. Without it the lower
@@ -32,7 +34,9 @@ Sky: Multiple Scattering (sun disc off) where this Blender has it; a turbidity f
 Camera: equirectangular panorama, three.js's own layout: u 0.25 faces -Z, the centre +X, u 0.75 +Z, both edges -X;
 row 0 is up. Sun AZ 0 = -Z, 90 = +X (both checked on Blender 5.1.2).
 Intensity: suggestedEnvMapIntensity = round(0.5 / meanLuminance, 3). Scale the map by it in three.js: a white albedo-1
-diffuse under a uniform map then reads 0.5. That suits a venue. For a sky, the game's DirectionalLight is the sun, so
+diffuse under a uniform map then reads 0.5. That suits a venue. With --lights three the map is already in the game's
+light units: suggestedEnvMapIntensity is 1.0 (calibratedToGame), and the mean-based number moves to
+meanBasedEnvMapIntensity. For a sky, the game's DirectionalLight is the sun, so
 keep the sky-to-sun ratio instead: with --ground and no venue the sidecar's sunIrradiance.normal is the sun's
 irradiance at right angles, measured off the ground, and envMapIntensity = directionalLight.intensity / that keeps the
 map and the game's sun at the rendered ratio, whatever units the game's light uses.
@@ -56,7 +60,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 from pcsubmit import load_imagegen, submit
 
-TOOL_VERSION = "1.3.0"
+TOOL_VERSION = "1.4.0"
 LIGHTS = ("standard", "three")      # --lights: how the venue's lights are read (env_blender.py LIGHT_MODES)
 PC_SCRIPT = HERE / "pc" / "env_blender.py"
 RENDER_FILE = "render.hdr"          # the raw render's name inside the job's output folder (options "render")
@@ -626,6 +630,11 @@ def finish(out, args, opts, census):
         "checks": checks,
         "warnings": warnings,
     }
+    if args.lights == "three":
+        # the venue's lights are in the game's own units, so the map is already at game brightness: scale it by 1
+        sidecar.update({"suggestedEnvMapIntensity": 1.0, "calibratedToGame": True,
+                        "meanBasedEnvMapIntensity": round(0.5 / mean_l, 3),
+                        "intensityFormula": "1.0 (--lights three: the map is in the game's light units)"})
     (out / f"{stem}_env.json").write_text(json.dumps(sidecar, indent=1))
     render.unlink()
     return sidecar
