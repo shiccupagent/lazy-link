@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """clone.py - copy your voice with AI, on your own PC. After you record (voice/install.py puts the recorder on the PC):
 bring the takes here, have Whisper (on the PC) check each take against its line, pick about 10 s of the cleanest
-correctly read lines per voice as that voice's reference (Chatterbox listens to the first 10 s), have Chatterbox on the PC say each voice's "try" line, and put your real recording and the AI copy
+correctly read lines per voice (least vocal fry first: the copy learns any creak in its reference) as that voice's reference (Chatterbox listens to the first 10 s), have Chatterbox on the PC say each voice's "try" line, and put your real recording and the AI copy
 side by side so you can hear how close it is.
 
   clone.py --setup              install Chatterbox on the PC (once: about 3.2 GB of model files plus 2.5 GB of torch)
@@ -13,9 +13,11 @@ Misread takes still teach the voice; they just never become the reference (a mis
 mispronounce). What Whisper heard per take: voice/recordings/_tx/match.json.
 
 Your recordings are personal: they stay on the PC and this computer (voice/recordings and voice/refs, both kept out of
-git), and the PC runs Chatterbox offline. Needs ffmpeg here. Windows PC only for now."""
+git), and the PC runs Chatterbox offline. Needs ffmpeg and numpy here. Windows PC only for now."""
 import argparse, datetime, difflib, json, re, shutil, subprocess, sys, tempfile, wave
 from pathlib import Path
+
+import numpy as np
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "imagegen"))
@@ -56,6 +58,37 @@ def secs(path):
         return w.getnframes() / w.getframerate()
 
 
+def fry(path):
+    """Share of voiced sound with no steady pitch (vocal fry, the low creak as a line trails off), 0..1: half the
+    whole take, half its last 0.6 s of sound. Per 60 ms frame: hiss is mostly above 1 kHz; normal voice repeats
+    at 75-400 Hz (autocorrelation >= 0.5); low-heavy sound that doesn't repeat is fry."""
+    sr = 16000
+    raw = subprocess.run([FF, "-v", "error", "-i", str(path), "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"],
+                         capture_output=True, check=True).stdout
+    x = np.frombuffer(raw, np.int16).astype(np.float32) / 32768
+    n, hop = int(0.06 * sr), int(0.01 * sr)
+    starts = range(0, len(x) - n, hop)
+    if not starts:
+        return 0.0
+    db = np.array([10 * np.log10(np.mean(x[i:i + n] ** 2) + 1e-12) for i in starts])
+    lows, ok = np.fft.rfftfreq(n, 1 / sr) < 1000, db >= db.max() - 35
+    kinds = []
+    for i, loud in zip(starts, ok):
+        if not loud:
+            continue
+        f = (x[i:i + n] - x[i:i + n].mean()) * np.hanning(n)
+        sp = np.abs(np.fft.rfft(f)) ** 2
+        if sp[lows].sum() < 0.6 * sp.sum():
+            kinds.append("s")
+            continue
+        ac = np.correlate(f, f, "full")[n - 1:]
+        kinds.append("m" if ac[sr // 400:sr // 75].max() >= 0.5 * ac[0] else "F")
+    if not kinds:
+        return 0.0
+    tail = kinds[-60:]
+    return round(0.5 * kinds.count("F") / len(kinds) + 0.5 * tail.count("F") / len(tail), 3)
+
+
 def words(s):
     return re.sub(r"[^a-z0-9 ]", "", s.lower().replace("-", " ")).split()
 
@@ -80,23 +113,28 @@ def transcribe(voices, takes):
 
 
 def make_ref(voice, takes, dest, match):
-    """The cleanest correctly read lines, in script order, trimmed, until REF_SECS is filled -> one WAV."""
-    picked, total = [], 0.0
+    """The correctly read lines with the least fry, trimmed, until REF_SECS is filled -> one WAV, in script order.
+    Each take's fry score goes into match.json beside what Whisper heard."""
+    good, picked, total = [], [], 0.0
     with tempfile.TemporaryDirectory() as td:
         for i, line in enumerate(voice["lines"], 1):
             src = takes / voice["id"] / f"{i:02d}.wav"
-            if line.get("room") or not src.is_file() or match.get(voice["id"], {}).get(f"{i:02d}", {}).get("match", 0) < GOOD_MATCH \
+            m = match.get(voice["id"], {}).get(f"{i:02d}", {})
+            if line.get("room") or not src.is_file() or m.get("match", 0) < GOOD_MATCH \
                     or not GOOD_PEAK[0] <= peak_db(src) <= GOOD_PEAK[1]:
                 continue
             t = Path(td) / f"{i:02d}.wav"
             subprocess.run([FF, "-v", "error", "-y", "-i", str(src), "-af", TRIM, "-ar", "48000", "-ac", "1", str(t)], check=True)
-            if secs(t) < 0.8:
-                continue
-            picked.append(t); total += secs(t)
+            if secs(t) >= 0.8:
+                m["fry"] = fry(t)
+                good.append((m["fry"], i, t))
+        for _, i, t in sorted(good):
+            picked.append((i, t)); total += secs(t)
             if total >= REF_SECS[0]:
                 break
         if not picked:
             return None
+        picked = [t for _, t in sorted(picked)]
         lst = Path(td) / "list.txt"
         gap = Path(td) / "gap.wav"
         subprocess.run([FF, "-v", "error", "-y", "-f", "lavfi", "-t", "0.25", "-i", "anullsrc=r=48000:cl=mono", str(gap)], check=True)
@@ -141,6 +179,7 @@ def main():
     asks = []
     for v in voices:
         got = make_ref(v, takes, refs / f"{v['id']}.wav", match)
+        (takes / "_tx" / "match.json").write_text(json.dumps(match, indent=1))
         print(f"{v['name']}: " + (f"{got} s of clean takes in the reference" if got else "no clean takes yet, skipped"))
         if got:
             asks.append({"id": v["id"], "text": v["try"]["text"], "exaggeration": v["try"]["exaggeration"], "cfg": v["try"]["cfg"]})

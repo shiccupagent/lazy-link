@@ -211,7 +211,8 @@ light.add(light.target);
 Double-click **Record voices** on the PC, put on your headset and read the lines (about 20 minutes, one line at a
 time, Space to record). The page records the plain microphone (no noise filters, which the copy would learn too)
 and warns when a take is too loud, too quiet or the room is noisy. Then `clone.py` brings the takes back, has Whisper check each
-one against its line, picks about 10 s of the cleanest correctly read lines and has [Chatterbox](https://huggingface.co/ResembleAI/chatterbox) (MIT) say a new
+one against its line, picks about 10 s of the cleanest correctly read lines (the ones with the least vocal fry, the low
+creak as a line trails off, because the copy learns it too) and has [Chatterbox](https://huggingface.co/ResembleAI/chatterbox) (MIT) say a new
 line in your voice, on the PC, offline. Your recordings are personal: they stay on the PC and your small computer
 (`voice/recordings` and `voice/refs`, never committed) and never go anywhere else. Change the lines in
 `voice/scripts.json`; `voice/example-voices.json` has two made-up character voices. Only copy a voice you have the

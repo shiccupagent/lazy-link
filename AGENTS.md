@@ -28,7 +28,7 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./video/webvideo.py PAGE.html --out DIR [--query "a=1"] [--seconds 6] [--fps 30] [--size 1920x1080]`: animated web page to .mp4 + .png, rendered on the PC (docs/WEB-TO-VIDEO.md).
 - `./voice/install.py [--script FILE]`: the walk-up voice recorder on a Windows PC ("Record voices" desktop icon).
   `./voice/clone.py --setup` once, then `./voice/clone.py [--only ID,...]`: AI copies of the recorded voices (Chatterbox, offline
-  on the PC; Whisper checks every take, misread ones never become the reference).
+  on the PC; Whisper checks every take, misread ones never become the reference, and the lines with the least vocal fry go first).
   `./voice/speak.py LINES.json --out DIR [--map speaker=voice] [--script FILE]`: narration in those voices; Whisper listens to
   each sentence and anything not heard word for word is said again with a new seed (up to --rounds 4; report.json).
   `./voice/lipsync.py --setup` once, then `./voice/lipsync.py VOICE.wav... --out DIR [--text T...]`: mouth shapes for a
