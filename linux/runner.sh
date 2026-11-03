@@ -12,6 +12,7 @@
 # RENDER_ROOT = /srv/lazylink, FFMPEG and BLENDER when found), keeps the machine awake while it
 # runs, ends the job's whole process group on timeout or when a 'cancel' file appears, then packs
 # out/ into out.tar. status.json is the state: queued -> running -> done | failed | timeout | cancelled.
+# A job cancelled before it starts goes straight from queued to cancelled (seconds 0, empty out.tar).
 # One job at a time, oldest first. When this file changes on disk the runner exits and systemd
 # starts the new copy (that is how `pcjob push-runner` updates it).
 #
@@ -98,6 +99,23 @@ stop_awake() {
     INHIBIT_PID=""
 }
 
+# A job cancelled while it still waits its turn ends here, without unpacking or starting anything, so the Mac
+# sees 'cancelled' within seconds instead of 'queued' until the runner reaches it. Runs while another job runs too;
+# the subshell keeps that job's ST_* values.
+skip_cancelled() {
+    local r d
+    for r in "$JOBS"/*/cancel; do
+        [ -f "$r" ] || continue
+        d=$(dirname "$r")
+        [ -f "$d/ready" ] && [ ! -f "$d/status.json" ] || continue
+        (
+            mkdir -p "$d/out" && tar -cf "$d/out.tar" -C "$d/out" .   # empty, so fetch works as for any ended job
+            ST_ID=$(basename "$d"); ST_STARTED=""; ST_TIMEOUT=null; ST_PID=""; ST_EXIT=""; ST_SECONDS=0; ST_ENDED=$(date -Is)
+            write_status "$d" cancelled
+        ) 2>/dev/null && log "end $(basename "$d") cancelled before it started"
+    done
+}
+
 run_job() {  # dir
     local dir=$1 id end err rc pid state t0 work out
     id=$(basename "$dir")
@@ -126,6 +144,7 @@ run_job() {  # dir
             [ -z "$state" ] && break
             case $state in Z*) break ;; esac
             date -Is > "$BEAT"
+            skip_cancelled
             if [ -f "$dir/cancel" ]; then end=cancelled; stop_job "$pid"; break; fi
             if [ $((SECONDS - t0)) -gt "$ST_TIMEOUT" ]; then end=timeout; stop_job "$pid"; break; fi
             sleep 2
@@ -183,6 +202,7 @@ main() {
         if [ "$(sha256sum "$SELF" | cut -d' ' -f1)" != "$SELF_HASH" ]; then
             log "runner.sh changed; restarting"; exit 0
         fi
+        skip_cancelled
         next=$(next_job)
         if [ -z "$next" ]; then sleep 2; continue; fi
         run_job "$next" || log "runner error on $(basename "$next")"

@@ -11,6 +11,7 @@ The runner unpacks in.tar into work\, runs job.ps1 there (env RENDER_OUT = the o
 RENDER_ROOT = C:\lazylink, FFMPEG and BLENDER when found), keeps the PC awake while it runs, kills
 the whole process tree on timeout or when a 'cancel' file appears, then packs out\ into out.tar.
 status.json is the state: queued -> running -> done | failed | timeout | cancelled.
+A job cancelled before it starts goes straight from queued to cancelled (seconds 0, empty out.tar).
 One job at a time, oldest first. When this file changes on disk the runner exits and the task's
 loop starts the new copy (that is how `pcjob push-runner` updates it).
 #>
@@ -93,6 +94,23 @@ function Set-Status($dir, $st) {
         catch { if ($i -ge 50) { throw }; Start-Sleep -Milliseconds 100 }
     }
 }
+# A job cancelled while it still waits its turn ends here, without unpacking or starting anything, so the Mac
+# sees 'cancelled' within seconds instead of 'queued' until the runner reaches it. Runs while another job runs too.
+function Skip-Cancelled {
+    foreach ($d in Get-ChildItem $Jobs -Directory) {
+        $dir = $d.FullName
+        if (-not ((Test-Path (Join-Path $dir 'ready')) -and (Test-Path (Join-Path $dir 'cancel')) -and
+                  -not (Test-Path (Join-Path $dir 'status.json')))) { continue }
+        try {
+            $out = Join-Path $dir 'out'
+            New-Item -ItemType Directory -Force $out | Out-Null
+            [void](Invoke-Native $Tar -cf (Join-Path $dir 'out.tar') -C $out .)   # empty, so fetch works as for any ended job
+            Set-Status $dir @{ id = $d.Name; state = 'cancelled'; started = $null; timeout_s = $null; pid = $null
+                               exit = $null; seconds = 0; ended = (Get-Date -Format o) }
+            Write-Log "end $($d.Name) cancelled before it started"
+        } catch { Write-Log "could not end cancelled job $($d.Name): $_" }
+    }
+}
 function Invoke-Job($dir) {
     $id = Split-Path $dir -Leaf
     $timeout = 3600
@@ -121,6 +139,7 @@ function Invoke-Job($dir) {
         $end = 'done'
         while (-not $p.WaitForExit(2000)) {
             Set-Content $Beat (Get-Date -Format o)
+            Skip-Cancelled
             $why = if (Test-Path (Join-Path $dir 'cancel')) { 'cancelled' } elseif ($clock.Elapsed.TotalSeconds -gt $timeout) { 'timeout' }
             if ($why) {
                 [void][LazyLink.Native]::Kill($jobObj)
@@ -160,6 +179,7 @@ Get-ChildItem $Jobs -Directory | ForEach-Object {
 while ($true) {
     Set-Content $Beat (Get-Date -Format o)
     if ((Get-FileHash $Self).Hash -ne $SelfHash) { Write-Log 'runner.ps1 changed; restarting'; exit 0 }
+    Skip-Cancelled
     $next = Get-ChildItem $Jobs -Directory |
         Where-Object { (Test-Path (Join-Path $_.FullName 'ready')) -and -not (Test-Path (Join-Path $_.FullName 'status.json')) } |
         Sort-Object CreationTime | Select-Object -First 1

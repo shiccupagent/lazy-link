@@ -199,8 +199,10 @@ def op_heartbeat_age():
 def op_status(job_id):
     d = ROOT + "/jobs/" + job_id
     return (f"$f='{ROOT}/jobs/{job_id}/status.json'; if (Test-Path $f) {{ Get-Content $f -Raw }} "
+            f"elseif (Test-Path '{ROOT}/jobs/{job_id}/cancel') {{ '{{\"state\":\"cancelling\"}}' }} "
             f"elseif (Test-Path '{ROOT}/jobs/{job_id}/ready') {{ '{{\"state\":\"queued\"}}' }} else {{ '{{\"state\":\"missing\"}}' }}",
             "d=" + q(d) + '; if [ -f "$d/status.json" ]; then cat "$d/status.json"; '
+            'elif [ -f "$d/cancel" ]; then echo \'{"state":"cancelling"}\'; '
             'elif [ -f "$d/ready" ]; then echo \'{"state":"queued"}\'; else echo \'{"state":"missing"}\'; fi')
 
 
@@ -220,10 +222,12 @@ def op_mark_ready(job_id, timeout_s):
 def op_list_jobs():
     return (f"Get-ChildItem '{ROOT}/jobs' -Directory | Sort-Object CreationTime | ForEach-Object {{ "
             "$s = Join-Path $_.FullName 'status.json'; "
-            "$st = if (Test-Path $s) { (Get-Content $s -Raw | ConvertFrom-Json).state } else { 'queued' }; "
+            "$st = if (Test-Path $s) { (Get-Content $s -Raw | ConvertFrom-Json).state } "
+            "elseif (Test-Path (Join-Path $_.FullName 'cancel')) { 'cancelling' } else { 'queued' }; "
             "'{0,-10} {1}' -f $st, $_.Name }",
             "cd " + q(ROOT + "/jobs") + " 2>/dev/null || exit 0; for d in *; do [ -d \"$d\" ] || continue; "
-            "st=queued; if [ -f \"$d/status.json\" ]; then st=$(sed -n 's/.*\"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$d/status.json\"); fi; "
+            "st=queued; if [ -f \"$d/status.json\" ]; then st=$(sed -n 's/.*\"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$d/status.json\"); "
+            "elif [ -f \"$d/cancel\" ]; then st=cancelling; fi; "
             "printf '%-10s %s\\n' \"$st\" \"$d\"; done")
 
 
@@ -295,9 +299,11 @@ def op_in_use():
 
 def op_busy_jobs():
     return (f"@(Get-ChildItem '{ROOT}/jobs' -Directory | Where-Object {{ $s = Join-Path $_.FullName 'status.json'; "
-            "(Test-Path (Join-Path $_.FullName 'ready')) -and (-not (Test-Path $s) -or (Get-Content $s -Raw | ConvertFrom-Json).state -eq 'running') }).Count",
+            "(Test-Path (Join-Path $_.FullName 'ready')) -and ((-not (Test-Path $s) -and -not (Test-Path (Join-Path $_.FullName 'cancel'))) "
+            "-or ((Test-Path $s) -and (Get-Content $s -Raw | ConvertFrom-Json).state -eq 'running')) }).Count",
             "n=0; for d in " + q(ROOT + "/jobs") + "/*; do [ -f \"$d/ready\" ] || continue; "
-            "if [ ! -f \"$d/status.json\" ] || grep -q '\"state\": *\"running\"' \"$d/status.json\"; then n=$((n+1)); fi; done; echo $n")
+            "if { [ ! -f \"$d/status.json\" ] && [ ! -f \"$d/cancel\" ]; } || grep -q '\"state\": *\"running\"' \"$d/status.json\" 2>/dev/null; "
+            "then n=$((n+1)); fi; done; echo $n")
 
 
 def op_sleep(hib):
@@ -616,7 +622,7 @@ def cmd_wait(a):
             if st["state"] == "running" and (last is None or last.startswith("queued")):
                 deadline = time.time() + a.max   # the run limit starts when the job does
             last = label
-        if st["state"] not in ("queued", "running"):
+        if st["state"] not in ("queued", "running", "cancelling"):   # cancelling: the runner ends it within seconds
             print(json.dumps(st, indent=1))
             if st["state"] != "done":
                 print(on_pc(op_err_tail, a.id, check=False))
@@ -630,7 +636,7 @@ def cmd_wait(a):
 def cmd_fetch(a):
     ids_ok(a.id)
     st = status(a.id)
-    if st["state"] in ("queued", "running", "missing"):
+    if st["state"] in ("queued", "running", "cancelling", "missing"):
         sys.exit(f"pcjob: {a.id} is {st['state']}; nothing to fetch yet")
     dest = Path(a.dest).expanduser().resolve()
     dest.mkdir(parents=True, exist_ok=True)

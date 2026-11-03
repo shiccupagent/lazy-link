@@ -34,6 +34,8 @@ A scheduled task (the *runner*) runs as `lazylink` from boot, whether or not any
 - keeps the PC awake while a job runs;
 - puts each job in a Windows *job object*, so a timeout or `pcjob cancel` ends the job and
   everything it started (no orphan holding the GPU);
+- ends a job cancelled while it still waits its turn at once, without starting it (`pcjob list` shows
+  `cancelling` for the second or two before that, and doesn't count it as a job ahead);
 - writes `status.json` (queued, running, done, failed, timeout, cancelled) and packs the results.
 The Mac checks the status every 10 s and fetches the results when it's done.
 

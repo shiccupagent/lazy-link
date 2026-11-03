@@ -55,7 +55,7 @@ def submit(ig, files, ps1, out, timeout, wait, name, label, on_fail=None):
     finally:
         if job_id is not None:   # stopped early: take our own job off the queue, or cancel it if it runs
             state = pc.status(job_id)["state"]
-            if state == "queued":
+            if state in ("queued", "cancelling"):
                 pc.cmd_rm(argparse.Namespace(id=job_id))
                 print(f"{label}: {job_id} removed from the PC queue", flush=True)
             elif state == "running":
