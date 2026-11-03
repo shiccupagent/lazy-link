@@ -212,8 +212,12 @@ def main():
         print("--- game-ready copies")
         fixed = fix(files, fixed_dir, frequent, {x for x in a.loop.split(",") if x}, {x for x in a.music.split(",") if x})
         out["fixed"] = check(fixed, frequent)
-        soundboard(fixed, fixed_dir / "soundboard.mp3")
+        out["skipped"] = sorted({f.stem for f in files} - {f.stem for f in fixed})  # silent, or too short to loop
+        if fixed:
+            soundboard(fixed, fixed_dir / "soundboard.mp3")
     json.dump(out, open(d / "check.json", "w"), indent=1)
+    if a.fix and not out["fixed"]:
+        sys.exit(f"no game-ready copies: every sound was skipped ({', '.join(out['skipped'])}; see above)")
     print(f"soundboard: {d / 'soundboard.mp3'}")
 
 
