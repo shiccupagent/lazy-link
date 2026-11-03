@@ -21,7 +21,7 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./imagegen/imagegen.py preview DIR`: turntable pictures of every .glb (needs Blender on the PC).
 - `python3 imagegen/audio_check.py DIR [--frequent a,b] [--fix OUTDIR]`: the never-harsh gate for sounds (brightness and >4 kHz share), writes DIR/soundboard.mp3 to listen to; `--fix` writes game-ready .mp3 copies (`--loop a,b`: sounds that repeat get a seamless copy, no fades;
   `--music a,b`: stereo tracks at -16 LUFS). Needs numpy and ffmpeg.
-- `python3 imagegen/pick_sounds.py TAKES_DIR --ref FILE... --dest DIR [--keep 3] [--often a,b]`: finishes, tone-matches and scores takes against reference sounds; keeps the best per sound. Needs numpy, scipy and ffmpeg.
+- `python3 imagegen/pick_sounds.py TAKES_DIR --ref FILE... --dest DIR [--keep 3] [--often a,b] [--tone-floor 2000 | --no-tone-match]`: finishes, tone-matches and scores takes against reference sounds; keeps the best per sound (the tone match never muffles a take below --tone-floor Hz). Needs numpy, scipy and ffmpeg.
 - `python3 imagegen/sheet.py OUT.png ASKS.json COL=DIR[:label] ...` or `sheet.py grid OUT.png ASKS.json DIR MODEL`: side-by-side comparison sheet (Pillow).
 - `python3 imagegen/watch.py [--mark]`: new open image models on Hugging Face (public API, no key).
 - `./local/local.py ask ASKS.jsonl --out DIR` / `ask-one "..."` / `transcribe FILE... --out DIR`.

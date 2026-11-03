@@ -171,17 +171,19 @@ def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(
         often = name in frequent
         lim_c, lim_h = (2500, 0.15) if often else (4000, 0.25)
 
-        def passes(arr, margin=1.0):
+        def passes(arr, spare=False):
+            # spare: room for the MP3 encode, which moves a sound that sits on the limit (it adds about 1 point
+            # to the >4 kHz share): 3% under the centroid limit and 2 points under the share limit.
             c, h = spectrum(arr.mean(axis=1) if arr.ndim == 2 else arr)
-            return c <= lim_c * margin and h <= lim_h * margin
+            return c <= lim_c * (0.97 if spare else 1) and h <= lim_h - (0.02 if spare else 0)
 
         y = eq()
         cut = None
-        if not passes(y):
-            lo, hi = 150.0, 16000.0  # bisect for the highest low-pass cutoff that passes the gate with 3% to spare
-            for _ in range(12):      # (MP3 encoding can move a sound that sits exactly on the limit)
+        if not passes(y, spare=True):
+            lo, hi = 150.0, 16000.0  # bisect for the highest low-pass cutoff that passes the gate with room to spare
+            for _ in range(12):
                 mid = (lo * hi) ** 0.5
-                if passes(eq(mid), 0.97):
+                if passes(eq(mid), spare=True):
                     lo = mid
                 else:
                     hi = mid

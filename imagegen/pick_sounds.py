@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """pick_sounds.py TAKES_DIR --ref FILE [FILE ...] --dest DEST [--keep 3] [--often a,b] [--max-sec S]
-                  [--fade-sec F] [--hp HZ] [--lp HZ] [--peak-db -2] - finish every generated take the way a
+                  [--fade-sec F] [--hp HZ] [--lp HZ] [--peak-db -2] [--tone-floor HZ | --no-tone-match] - finish every generated take the way a
 sound should be cut, score it against your reference sounds, and keep the best few per sound.
 
 TAKES_DIR holds generated takes named <key>__<anything>.<ext>. imagegen.py make audio writes <name>__audio.mp3,
@@ -16,6 +16,9 @@ set to the references' average RMS, peak at most --peak-db (default -2 dBFS).
 Tone match: a take noticeably brighter than the references (spectral centroid more than 25% higher) gets a
 low-pass that brings its centroid to about 1.15x theirs (still a little fresher, but in the same family). When the
 references pass the never-harsh gate (audio_check.py), the take must pass it too.
+The tone match never cuts below --tone-floor (default 2000 Hz): dark references (a 300 Hz thud) must not muffle a
+bark or a chime into a thump. Only the never-harsh gate may cut lower, and the run says so (warns under 1.5 kHz).
+--no-tone-match: no low-pass at all (takes are still scored, and harsh ones still counted).
 
 Score (higher is better), each part 0..1 on the finished clip:
   0.55 tone   - how close its spectrum (16 bands) is to the references: the same kind of sound
@@ -62,20 +65,30 @@ def finish(x, max_sec, fade_sec, hp=None, lp=None):
     return x
 
 
-def tone_match(x, ref_centroid, gate=None):
-    """Low-pass a take that is >25% brighter than the references so its centroid lands near 1.15x theirs.
-    gate=(centroid, hf share): the references pass the never-harsh gate, so the take must pass it too."""
-    def ok(y):
-        c, h = ac.spectrum(y.astype(np.float32))
-        return c <= 1.15 * ref_centroid and (gate is None or (c <= gate[0] and h <= gate[1]))
-    c0, h0 = ac.spectrum(x.astype(np.float32))
-    if c0 <= 1.25 * ref_centroid and (gate is None or (c0 <= gate[0] and h0 <= gate[1])):
+def tone_match(x, ref_centroid, gate=None, floor=2000.0):
+    """Low-pass a take that is >25% brighter than the references so its centroid lands near 1.15x theirs, never
+    cutting below floor Hz for that. gate=(centroid, hf share): the references pass the never-harsh gate, so the
+    take must pass it too; only the gate may cut below floor."""
+    lp = lambda f: sosfilt(butter(2, f, "lowpass", fs=SR, output="sos"), x)
+    spec = lambda y: ac.spectrum(y.astype(np.float32))
+    gate_ok = lambda c, h: gate is None or (c <= gate[0] and h <= gate[1])
+
+    def highest(lo, hi, ok):  # bisect for the highest cutoff in [lo, hi] that is ok (a 2nd-order low-pass)
+        for _ in range(14):
+            mid = (lo * hi) ** 0.5
+            lo, hi = (mid, hi) if ok(*spec(lp(mid))) else (lo, mid)
+        return lo
+    c0, h0 = spec(x)
+    if c0 <= 1.25 * ref_centroid and gate_ok(c0, h0):
         return x, None
-    lo, hi = 150.0, 16000.0
-    for _ in range(14):  # bisect for the highest cutoff that is ok (a 2nd-order low-pass)
-        mid = (lo * hi) ** 0.5
-        lo, hi = (mid, hi) if ok(sosfilt(butter(2, mid, "lowpass", fs=SR, output="sos"), x)) else (lo, mid)
-    return sosfilt(butter(2, lo, "lowpass", fs=SR, output="sos"), x), round(lo)
+    floor = min(floor, 16000.0)
+    if not gate_ok(*spec(lp(floor))):   # harsh even at the floor: the gate alone decides how far below it to go
+        cut = highest(150.0, floor, gate_ok)
+    elif c0 <= 1.25 * ref_centroid:     # only the gate asked for a cut
+        cut = highest(floor, 16000.0, gate_ok)
+    else:
+        cut = highest(floor, 16000.0, lambda c, h: c <= 1.15 * ref_centroid and gate_ok(c, h))
+    return lp(cut), round(cut)
 
 
 def level(x, target_db, peak_db):
@@ -119,6 +132,9 @@ def main():
     p.add_argument("--hp", type=float, help="optional high-pass, Hz")
     p.add_argument("--lp", type=float, help="optional low-pass, Hz (applied before the tone match)")
     p.add_argument("--peak-db", type=float, default=-2.0, help="peak ceiling in dBFS (default -2)")
+    p.add_argument("--tone-floor", type=float, default=2000.0,
+                   help="the tone match never low-passes below this, Hz (default 2000; the never-harsh gate may)")
+    p.add_argument("--no-tone-match", action="store_true", help="no tone-match low-pass at all")
     a = p.parse_args()
     if np is None:
         sys.exit("pick_sounds needs numpy and scipy on this computer: pip3 install numpy scipy")
@@ -157,7 +173,12 @@ def main():
         rows = []
         for f in takes:
             raw = ac.decode(f).astype(np.float64)
-            y, cut = tone_match(finish(raw, max_sec, a.fade_sec, a.hp, a.lp), ref_c, (lim_c, lim_h) if ref_ok else None)
+            y = finish(raw, max_sec, a.fade_sec, a.hp, a.lp)
+            cut = None
+            if not a.no_tone_match:
+                y, cut = tone_match(y, ref_c, (lim_c, lim_h) if ref_ok else None, a.tone_floor)
+                if cut and cut < 1500:
+                    print(f"  {f.name}: low-passed at {cut} Hz to pass the never-harsh gate; listen, it may sound muffled")
             y = level(y, ref_db, a.peak_db)
             tone = (cos(bands(y), ref_b) + 1) / 2
             shp = max(0.0, cos(shape(y), ref_s))
