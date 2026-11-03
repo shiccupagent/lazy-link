@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """audio_check.py - the "never harsh" gate for generated sounds, plus a soundboard to listen to.
 
-  audio_check.py DIR [--frequent a,b,...] [--fix OUTDIR]
+  audio_check.py DIR [--frequent a,b,...] [--fix OUTDIR [--loop a,b,...] [--music a,b,...]]
 
 For every .mp3/.wav/.flac/.ogg in DIR: length, loudness (LUFS), true peak, spectral centroid and the share of
 energy above 4 kHz. Gate: sounds that fire often need centroid <= 2.5 kHz and a >4 kHz share <= 15%; the rest need
@@ -10,6 +10,10 @@ first "__"). Writes DIR/soundboard.mp3 (every sound in a row, 0.7 s apart) and D
 
 --fix also writes game-ready copies to OUTDIR (.mp3): silence trimmed, short fades, shelf cut above 6 kHz and a
 3-4 kHz dip, loudness -18 LUFS with a -1 dBFS ceiling; the fixed copies are checked again.
+--loop names sounds that repeat in the game (engine hum, ambience, a music bed): no trim and no fades; the tail is
+crossfaded into the head (equal power, 0.25 s, 1 s for music) and the copy starts on an upward zero crossing, so it
+wraps with no dip or click. The EQ runs over three copies in a row and the middle one is kept, so the filters
+have settled at both ends. --music names tracks that stay stereo, at -16 LUFS, as 192 kbps mp3.
 
 Needs ffmpeg on the PATH and numpy (pip3 install numpy). Nothing else.
 """
@@ -25,10 +29,35 @@ SR = 44100
 EXTS = (".mp3", ".wav", ".flac", ".ogg")
 
 
-def decode(path):
-    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
+def decode(path, channels=1):
+    """float32 samples at SR: shape (n,) mono, (n, 2) stereo."""
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-i", str(path), "-ac", str(channels), "-ar", str(SR), "-f", "f32le", "-"],
                          capture_output=True, check=True).stdout
-    return np.frombuffer(raw, dtype=np.float32)
+    x = np.frombuffer(raw, dtype=np.float32)
+    return x.reshape(-1, channels) if channels > 1 else x
+
+
+def loop_crossfade(x, xf):
+    """x made to repeat with no gap: its first xf samples blend (equal power) with the xf samples after the loop
+    point, so the last kept sample runs on into the sound's own continuation. Returns len(x) - xf samples, or None
+    when x is too short for that crossfade."""
+    keep = len(x) - xf
+    if xf < 1 or keep < 2 * xf:
+        return None
+    out = x[:keep].copy()
+    t = np.linspace(0.0, np.pi / 2, xf, endpoint=False).reshape((xf,) + (1,) * (x.ndim - 1))
+    out[:xf] = out[:xf] * np.sin(t) + x[keep:] * np.cos(t)
+    return out
+
+
+def rotate_to_zero(y, keep):
+    """One period of the 3x tiled loop y, from the middle copy, starting at its first upward zero crossing
+    (an mp3 starts from silence, so a loop that starts mid-wave clicks on every restart)."""
+    m = y.mean(axis=1) if y.ndim == 2 else y
+    seg = m[keep:2 * keep]
+    hits = np.nonzero((seg[:-1] < 0) & (seg[1:] >= 0))[0]
+    a = keep + (int(hits[0]) + 1 if hits.size else 0)
+    return y[a:a + keep]
 
 
 def loudness(path):
@@ -77,37 +106,53 @@ def soundboard(files, out):
     subprocess.run(["ffmpeg", "-v", "error", "-y", *args, "-filter_complex", flt, "-map", "[out]", "-q:a", "2", str(out)], check=True)
 
 
-def fix(files, outdir, frequent=frozenset()):
+def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset()):
     """Game-ready copy: trim silence (relative to the sound's own peak), 5 ms fade-in / 30 ms fade-out,
     shelf cut above 6 kHz and a dip at 3-4 kHz (the audio rules). If it still fails the never-harsh gate, a
     low-pass is lowered (bisected) to the highest cutoff that passes. Then gain to -18 LUFS (RMS for clips
-    under 0.5 s, where LUFS is undefined) without letting the peak pass -1 dBFS."""
+    under 0.5 s, where LUFS is undefined) without letting the peak pass -1 dBFS.
+    loops / music: names (before "__") of sounds that repeat, and of stereo tracks (-16 LUFS, 192k); see the top."""
     outdir.mkdir(parents=True, exist_ok=True)
     done = []
     for p in files:
-        x = decode(p)
-        env = np.abs(x)
+        name = p.stem.split("__")[0]
+        is_loop, is_music = name in loops, name in music
+        ch = 2 if is_music else 1
+        x = decode(p, ch)
+        env = np.abs(x).max(axis=1) if ch > 1 else np.abs(x)
         if env.size == 0 or env.max() == 0:
             print(f"{p.name}: silent, nothing to fix")
             continue
-        on = np.where(env > env.max() * 10 ** (-40 / 20))[0]
-        x = x[max(0, on[0] - int(0.002 * SR)): on[-1] + int(0.03 * SR)].copy()
-        n_in, n_out = int(0.005 * SR), min(int(0.03 * SR), len(x) // 4)
-        x[:n_in] *= np.linspace(0, 1, n_in)
-        x[-n_out:] *= np.linspace(1, 0, n_out)
+        keep = 0
+        if is_loop:
+            x = loop_crossfade(x, int((1.0 if is_music else 0.25) * SR))
+            if x is None:
+                print(f"{p.name}: too short to loop, skipped")
+                continue
+            keep = len(x)
+            x = np.concatenate([x, x, x])
+        else:
+            on = np.where(env > env.max() * 10 ** (-40 / 20))[0]
+            x = x[max(0, on[0] - int(0.002 * SR)): on[-1] + int(0.03 * SR)].copy()
+            n_in, n_out = int(0.005 * SR), min(int(0.03 * SR), len(x) // 4)
+            fade = lambda r: r.reshape((-1,) + (1,) * (x.ndim - 1))
+            x[:n_in] *= fade(np.linspace(0, 1, n_in))
+            x[-n_out:] *= fade(np.linspace(1, 0, n_out))
 
         def eq(cut=None):
             af = "highshelf=f=6000:g=-4,equalizer=f=3500:width_type=o:width=1:g=-4" + (f",lowpass=f={cut:.0f}" if cut else "")
-            out = subprocess.run(["ffmpeg", "-v", "error", "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", "-",
+            out = subprocess.run(["ffmpeg", "-v", "error", "-f", "f32le", "-ar", str(SR), "-ac", str(ch), "-i", "-",
                                   "-af", af, "-f", "f32le", "-"],
-                                 input=x.astype(np.float32).tobytes(), capture_output=True, check=True).stdout
-            return np.frombuffer(out, dtype=np.float32).copy()
+                                 input=np.ascontiguousarray(x, dtype=np.float32).tobytes(), capture_output=True, check=True).stdout
+            y = np.frombuffer(out, dtype=np.float32).copy()
+            y = y.reshape(-1, ch) if ch > 1 else y
+            return rotate_to_zero(y, keep) if keep else y
 
-        often = p.stem.split("__")[0] in frequent
+        often = name in frequent
         lim_c, lim_h = (2500, 0.15) if often else (4000, 0.25)
 
         def passes(arr, margin=1.0):
-            c, h = spectrum(arr)
+            c, h = spectrum(arr.mean(axis=1) if arr.ndim == 2 else arr)
             return c <= lim_c * margin and h <= lim_h * margin
 
         y = eq()
@@ -125,18 +170,21 @@ def fix(files, outdir, frequent=frozenset()):
             print(f"{p.name}: low-pass at {lo:.0f} Hz to pass the gate" if cut else
                   f"{p.name}: still fails the gate at 150 Hz low-pass (not fixable this way; listen or regenerate)")
         tmp = outdir / (p.stem + ".tmp.wav")
-        enc = lambda arr, dst, codec: subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", "-",
-                                                      *codec, str(dst)], input=arr.astype(np.float32).tobytes(), check=True)
+        enc = lambda arr, dst, codec: subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", str(ch),
+                                                      "-i", "-", *codec, str(dst)],
+                                                     input=np.ascontiguousarray(arr, dtype=np.float32).tobytes(), check=True)
         if len(y) >= SR // 2:
             enc(y, tmp, [])
             now, _ = loudness(tmp)
             tmp.unlink()
         else:
             now = 20 * np.log10(np.sqrt(np.mean(y ** 2)) + 1e-9)
-        gain = 10 ** ((-18 - now) / 20)
+        gain = 10 ** (((-16 if is_music else -18) - now) / 20)
         gain = min(gain, 10 ** (-1 / 20) / (np.abs(y).max() + 1e-9))
         dst = outdir / (p.stem + ".mp3")
-        enc(y * gain, dst, ["-c:a", "libmp3lame", "-q:a", "2"])
+        enc(y * gain, dst, ["-c:a", "libmp3lame"] + (["-b:a", "192k"] if is_music else ["-q:a", "2"]))
+        if keep:
+            print(f"{p.name}: loop of {keep / SR:.2f} s")
         done.append(dst)
     return done
 
@@ -146,6 +194,8 @@ def main():
     p.add_argument("dir", help="folder of sounds to check")
     p.add_argument("--frequent", default="", help="comma-separated sound names that fire often (stricter gate)")
     p.add_argument("--fix", metavar="OUTDIR", help="also write game-ready copies to OUTDIR and check them again")
+    p.add_argument("--loop", default="", help="with --fix: comma-separated sound names that repeat (seamless copies)")
+    p.add_argument("--music", default="", help="with --fix: comma-separated names of stereo music tracks (-16 LUFS)")
     a = p.parse_args()
     if np is None:
         sys.exit("audio_check needs numpy on this computer: pip3 install numpy")
@@ -160,7 +210,7 @@ def main():
     if a.fix:
         fixed_dir = Path(a.fix)
         print("--- game-ready copies")
-        fixed = fix(files, fixed_dir, frequent)
+        fixed = fix(files, fixed_dir, frequent, {x for x in a.loop.split(",") if x}, {x for x in a.music.split(",") if x})
         out["fixed"] = check(fixed, frequent)
         soundboard(fixed, fixed_dir / "soundboard.mp3")
     json.dump(out, open(d / "check.json", "w"), indent=1)
