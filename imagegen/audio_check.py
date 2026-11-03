@@ -3,7 +3,7 @@
 
   audio_check.py DIR [--frequent a,b,...] [--fix OUTDIR [--loop a,b,...] [--music a,b,...]]
 
-For every .mp3/.wav/.flac/.ogg in DIR: length, loudness (LUFS), true peak, spectral centroid and the share of
+For every .mp3/.wav/.flac/.ogg in DIR: length, loudness (LUFS; a clip under 0.4 s is measured tiled), true peak, spectral centroid and the share of
 energy above 4 kHz. Gate: sounds that fire often need centroid <= 2.5 kHz and a >4 kHz share <= 15%; the rest need
 centroid <= 4 kHz and <= 25%. --frequent names the sounds that fire often (the part of the file name before the
 first "__"). Writes DIR/soundboard.mp3 (every sound in a row, 0.7 s apart) and DIR/check.json.
@@ -60,11 +60,31 @@ def rotate_to_zero(y, keep):
     return y[a:a + keep]
 
 
-def loudness(path):
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(path), "-af", "loudnorm=print_format=json", "-f", "null", "-"],
-                       capture_output=True, text=True)
-    j = json.loads(r.stderr[r.stderr.rindex("{"):r.stderr.rindex("}") + 1])
+def _loudnorm(inp, data=None):
+    r = subprocess.run(["ffmpeg", "-hide_banner", *inp, "-af", "loudnorm=print_format=json", "-f", "null", "-"],
+                       input=data, capture_output=True)
+    err = r.stderr.decode(errors="replace")
+    j = json.loads(err[err.rindex("{"):err.rindex("}") + 1])
     return float(j["input_i"]), float(j["input_tp"])
+
+
+def loudness(path):
+    """(integrated LUFS, true peak dBTP). A clip shorter than one 400 ms gating block has no integrated loudness
+    (ffmpeg says -inf), so it is measured tiled end to end to 3 s instead: the mean square stays the same, so the
+    value is the clip's own loudness (padding with silence would read it too quiet). Digital silence stays -inf."""
+    lufs, tp = _loudnorm(["-i", str(path)])
+    if lufs != float("-inf"):
+        return lufs, tp
+    ch = int(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels",
+                             "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout.strip() or 1)
+    x = decode(path, ch)
+    if len(x) == 0 or not np.abs(x).max():
+        return lufs, tp
+    reps = -(-3 * SR // len(x))
+    y = np.tile(x, (reps, 1) if ch > 1 else reps)
+    lufs, _ = _loudnorm(["-f", "f32le", "-ar", str(SR), "-ac", str(ch), "-i", "-"],
+                        np.ascontiguousarray(y, dtype=np.float32).tobytes())
+    return lufs, tp
 
 
 def spectrum(x):
@@ -109,8 +129,8 @@ def soundboard(files, out):
 def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset()):
     """Game-ready copy: trim silence (relative to the sound's own peak), 5 ms fade-in / 30 ms fade-out,
     shelf cut above 6 kHz and a dip at 3-4 kHz (the audio rules). If it still fails the never-harsh gate, a
-    low-pass is lowered (bisected) to the highest cutoff that passes. Then gain to -18 LUFS (RMS for clips
-    under 0.5 s, where LUFS is undefined) without letting the peak pass -1 dBFS.
+    low-pass is lowered (bisected) to the highest cutoff that passes. Then gain to -18 LUFS (clips under 0.4 s
+    measured tiled, see loudness) without letting the peak pass -1 dBFS.
     loops / music: names (before "__") of sounds that repeat, and of stereo tracks (-16 LUFS, 192k); see the top."""
     outdir.mkdir(parents=True, exist_ok=True)
     done = []
@@ -173,12 +193,9 @@ def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(
         enc = lambda arr, dst, codec: subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", str(ch),
                                                       "-i", "-", *codec, str(dst)],
                                                      input=np.ascontiguousarray(arr, dtype=np.float32).tobytes(), check=True)
-        if len(y) >= SR // 2:
-            enc(y, tmp, [])
-            now, _ = loudness(tmp)
-            tmp.unlink()
-        else:
-            now = 20 * np.log10(np.sqrt(np.mean(y ** 2)) + 1e-9)
+        enc(y, tmp, [])
+        now, _ = loudness(tmp)
+        tmp.unlink()
         gain = 10 ** (((-16 if is_music else -18) - now) / 20)
         gain = min(gain, 10 ** (-1 / 20) / (np.abs(y).max() + 1e-9))
         dst = outdir / (p.stem + ".mp3")
