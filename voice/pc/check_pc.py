@@ -44,10 +44,14 @@ def check(rnd):
         path = os.path.join("att", f"{key}_{rnd}.wav")
         segs, _ = m.transcribe(path, language="en", beam_size=5)
         said = " ".join(s.text.strip() for s in segs)
-        score = difflib.SequenceMatcher(None, norm(jobs[key]["text"]), norm(said)).ratio()
-        if key not in best or score > best[key]["score"]:
-            best[key] = {"round": rnd, "score": round(score, 3), "said": said,
-                         "exact": words(jobs[key]["text"]) == words(said)}
+        # heard right = Whisper's words match the text as written or its spoken spelling ("Clawd" may be heard either way)
+        forms = [jobs[key]["text"]] + jobs[key].get("says", [])
+        score = max(difflib.SequenceMatcher(None, norm(f), norm(said)).ratio() for f in forms)
+        exact = any(words(f) == words(said) for f in forms)
+        if key not in best or (exact, score) > (best[key].get("exact", False), best[key]["score"]):
+            says = jobs[key].get("says") or [jobs[key]["text"]]
+            best[key] = {"round": rnd, "score": round(score, 3), "said": said, "exact": exact,
+                         "spoken": says[rnd % len(says)] != jobs[key]["text"]}
     todo = [k for k in jobs if not best[k].get("exact")]
     json.dump(best, open("best.json", "w"), indent=1)
     json.dump(todo, open("todo.json", "w"))

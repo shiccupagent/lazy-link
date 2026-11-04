@@ -1,0 +1,25 @@
+{
+ "about": "How to say words a voice model reads wrong (\"Claude\" as \"Cloud\"). voice/speak.py says each sentence as written first and uses these spoken spellings on the rounds after Whisper hears it wrong (--respell auto), every round (always) or never. write = the word as written (whole word, case kept), say = how to spell it so it is said right. pattern entries are regular expressions (Python re, \\1 = the first group). Spoken forms from the 2026-10-30 voice test (barnaby-studio imagegen/compare/voice/lines_hard.json) and docs/research/VOICE-TTS-2026-10.md there.",
+ "words": [
+  {"write": "Claude", "say": "Clawd"},
+  {"write": "ComfyUI", "say": "Comfy U I"},
+  {"write": "llama.cpp", "say": "llama dot C P P"},
+  {"write": "pcjob", "say": "P C job"},
+  {"write": "Krea", "say": "Kree-uh"},
+  {"write": "Qwen", "say": "Kwen"},
+  {"write": "BiRefNet", "say": "Bye-Ref-Net"},
+  {"write": "uv", "say": "U V"},
+  {"write": "Barnaby's", "say": "Barna-bee's"},
+  {"write": "SSH", "say": "S S H"},
+  {"write": "Wake-on-LAN", "say": "Wake on Lan"},
+  {"write": "VRAM", "say": "V-RAM"},
+  {"write": "RTX", "say": "R T X"},
+  {"write": "NVENC", "say": "En-Venk"},
+  {"write": "ffmpeg", "say": "F F M peg"},
+  {"write": "PyTorch", "say": "Pie Torch"},
+  {"write": "CLI", "say": "C L I"},
+  {"write": "GPU", "say": "G P U"},
+  {"write": "PC", "say": "P C"},
+  {"pattern": "\\b(\\w+)\\.py\\b", "say": "\\1 dot P Y"}
+ ]
+}

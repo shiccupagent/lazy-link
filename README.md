@@ -219,6 +219,11 @@ line in your voice, on the PC, offline. Your recordings are personal: they stay 
 `voice/scripts.json`; `voice/example-voices.json` has two made-up character voices. Only copy a voice you have the
 right to use. Everything Chatterbox makes carries an inaudible watermark that marks it as AI speech.
 
+Tech words: some models read "Claude" as "Cloud". `voice/lexicon.json` lists how to say such words ("Clawd",
+"Comfy U I", "check dot P Y"); add your own. `speak.py` says each sentence as written first and uses the spoken
+spelling only on the retries after Whisper heard it wrong (`--respell always` for models that want it every time,
+`never` to turn it off). `./voice/speak.py --respell-only "text"` prints the spoken spelling without the PC.
+
 ### Make a character talk (Windows PC)
 ```bash
 ./voice/lipsync.py --setup                                # once: installs Rhubarb Lip Sync (MIT) on the PC

@@ -32,6 +32,7 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
   on the PC; Whisper checks every take, misread ones never become the reference, and the lines with the least vocal fry go first).
   `./voice/speak.py LINES.json --out DIR [--map speaker=voice] [--script FILE]`: narration in those voices; Whisper listens to
   each sentence and anything not heard word for word is said again with a new seed (up to --rounds 4; report.json).
+  Misread tech words: spoken spellings in voice/lexicon.json, tried on the retries (`--respell auto|always|never`).
   `./voice/lipsync.py --setup` once, then `./voice/lipsync.py VOICE.wav... --out DIR [--text T...]`: mouth shapes for a
   talking character (Rhubarb Lip Sync on the PC; `<name>.json` mouthCues A-H/X; words from --text or `<name>.txt` beside
   the recording make them land right). Windows PC only. Shape table in the script's docstring.
