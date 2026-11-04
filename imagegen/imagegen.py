@@ -23,8 +23,8 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
 For make, ASKS.json is a list of {"name": "...", "params": {"prompt": "...", ...}, "image": "in.png"}:
 params are the recipe's named inputs (models.json "recipes"), image (3D) is a local file.
 ASKS.json is a list of {"name": "...", "prompt": "...", "w": 1024, "h": 1024, "seed": 1, "cutout": false}.
-Repaint part of a picture: "init": "in.png", "mask": "mask.png" (white = repaint), "denoise": 0.6, with
-run(..., inputs=[in.png, mask.png]); pixels outside the mask come back exactly.
+Repaint part of a picture: "init": "in.png", "mask": "mask.png" (white = repaint), "denoise": 0.6; the pictures are
+found beside ASKS.json (or by full path) and sent with the job; pixels outside the mask come back exactly.
 Each result is DIR/<name>__<model>.png (+ <name>__<model>-cutout.png with a transparent
 background when "cutout" is true), plus DIR/timings.json and DIR/comfy.log.
 """
@@ -109,6 +109,25 @@ def run(asks, keys, out, timeout, inputs=()):
     print(f"images in {out}")
 
 
+def with_pictures(asks_file):
+    """The asks in ASKS.json, with each "init" / "mask" picture (beside ASKS.json, or a full path) sent as
+    inputs/<name> and the ask pointed there. Returns (asks, inputs for run)."""
+    asks = json.loads(asks_file.read_text(encoding="utf-8-sig"))
+    sent = {}
+    for x in asks:
+        for k in ("init", "mask"):
+            if not x.get(k):
+                continue
+            src = (asks_file.parent / x[k]).resolve()
+            if not src.is_file():
+                sys.exit(f"imagegen: ask {x.get('name', '?')!r}: {k} picture {x[k]} not found (beside {asks_file.name}, or a full path)")
+            dest = f"inputs/{src.name}"
+            if sent.setdefault(dest, src) != src:
+                sys.exit(f"imagegen: two different pictures are both called {src.name}; rename one")
+            x[k] = dest
+    return asks, [(src, dest) for dest, src in sent.items()]
+
+
 def make(key, asks, out, timeout):
     r = MODELS["recipes"][key]
     out = Path(out).expanduser().resolve()
@@ -169,7 +188,8 @@ def main():
     pb.add_argument("--model", default="heuristic", help="roughness maker; only heuristic for now")
     a = p.parse_args()
     if a.cmd == "run":
-        run(json.loads(Path(a.asks).read_text(encoding="utf-8-sig")), model_keys(a.models), a.out, a.timeout)
+        asks, inputs = with_pictures(Path(a.asks).resolve())
+        run(asks, model_keys(a.models), a.out, a.timeout, inputs)
     elif a.cmd == "one":
         w, h = (int(x) for x in a.size.lower().split("x"))
         run([{"name": a.name, "prompt": a.prompt, "w": w, "h": h, "seed": a.seed, "cutout": a.cutout}], model_keys(a.model), a.out, a.timeout)
