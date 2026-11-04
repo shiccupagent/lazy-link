@@ -10,7 +10,8 @@ first "__"). Writes DIR/soundboard.mp3 (every sound in a row, 0.7 s apart) and D
 
 --fix also writes game-ready copies to OUTDIR (.mp3): silence trimmed, short fades, shelf cut above 6 kHz and a
 3-4 kHz dip, loudness -18 LUFS with a -1 dBFS ceiling; the fixed copies are checked again.
---loop names sounds that repeat in the game (engine hum, ambience, a music bed): no trim and no fades; the tail is
+--loop names sounds that repeat in the game (engine hum, ambience, a music bed): only the silence padded onto the
+ends is cut (10 ms windows more than 40 dB under the peak; looped, it is a dropout every time round), no fades; the tail is
 crossfaded into the head (equal power, 0.25 s, 1 s for music) and the copy starts on an upward zero crossing, so it
 wraps with no dip or click. The EQ runs over three copies in a row and the middle one is kept, so the filters
 have settled at both ends. --music names tracks that stay stereo, at -16 LUFS, as 192 kbps mp3.
@@ -48,6 +49,21 @@ def loop_crossfade(x, xf):
     t = np.linspace(0.0, np.pi / 2, xf, endpoint=False).reshape((xf,) + (1,) * (x.ndim - 1))
     out[:xf] = out[:xf] * np.sin(t) + x[keep:] * np.cos(t)
     return out
+
+
+def sound_span(x, below=40, win=0.01):
+    """(start, end) samples of x from its first to its last 10 ms window whose RMS is within `below` dB of the
+    loudest sample: the silence a model pads onto the ends goes, quiet tails and breaths inside stay."""
+    m = np.abs(x).max(axis=1) if x.ndim == 2 else np.abs(x)
+    w = max(1, int(win * SR))
+    n = len(m) // w
+    if n == 0:
+        return 0, len(m)
+    rms = np.sqrt((m[:n * w].reshape(n, w) ** 2).mean(axis=1))
+    on = np.nonzero(rms > m.max() * 10 ** (-below / 20))[0]
+    if not on.size:
+        return 0, len(m)
+    return int(on[0]) * w, len(m) if on[-1] == n - 1 else (int(on[-1]) + 1) * w
 
 
 def rotate_to_zero(y, keep):
@@ -145,7 +161,10 @@ def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(
             continue
         keep = 0
         if is_loop:
-            x = loop_crossfade(x, int((1.0 if is_music else 0.25) * SR))
+            a, b = sound_span(x)  # Stable Audio pads a short ask with digital silence; looped, it is a dropout
+            if b - a < len(x):
+                print(f"{p.name}: {a / SR:.2f} s of silence off the start, {(len(x) - b) / SR:.2f} s off the end")
+            x = loop_crossfade(x[a:b], int((1.0 if is_music else 0.25) * SR))
             if x is None:
                 print(f"{p.name}: too short to loop, skipped")
                 continue
