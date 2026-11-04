@@ -39,6 +39,9 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./examples/try.py [spin|pictures|sounds|room|3d|all]`: end-to-end examples, each ending in a file to open (out/try/).
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap` (`cancel` on a queued job ends it
   within seconds, without starting it).
+- `./mac/pcshare setup | keychain | check | mount [DIR]`: a folder on the Windows PC (D:\MacShare) that the Mac opens over
+  SMB; `setup` puts a one-click admin shortcut on the PC's desktop for the user, `keychain` moves the share's random
+  password into the Mac's keychain (never print it). What it changes and -Undo: pc/setup-share.ps1.
 - `./mac/pcjob quiet HH:MM | off`: leave the PC alone until then (an overnight hibernate: any ssh can wake it). `run` waits;
   every other PC command exits 75 without touching the network. Respect a hold someone else set; ask before `quiet off`.
 - Cheap electricity: `--cheap` on `pcjob run`, or `LAZY_CHEAP=1` before any command, holds the job until

@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""pcshare - a folder on the Windows PC that this Mac opens like a drive (an SMB share on the home network).
+
+  pcshare setup [--folder D:\\MacShare]   put "Set up Mac shared folder" on the PC's Public Desktop
+                                         (the user double-clicks it once and says Yes to the admin prompt)
+  pcshare keychain                       move the share's password from the PC into this Mac's keychain
+                                         (never printed; the PC's copy is deleted)
+  pcshare check                          is it set up, its address, the account, can this Mac reach port 445
+                                         and log in; exit 0 only when all pass
+  pcshare mount [DIR]                    open it at DIR (default ~/PCShare) with the keychain password
+
+What the PC side changes, and how to undo it: pc/setup-share.ps1. Windows PCs only. Uses pcjob's config.json and
+ssh, so `pcjob quiet` holds it too.
+"""
+import argparse, json, socket, subprocess, sys
+import importlib.util
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+_spec = importlib.util.spec_from_loader("pcjob", SourceFileLoader("pcjob", str(HERE / "pcjob")))
+pj = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(pj)   # pcjob has no .py name; its config, ssh and quiet hold are reused as they are
+REPO, ROOT, HOST, CFG = pj.REPO, pj.ROOT, pj.HOST, pj.CFG
+WIN_ROOT = ROOT.replace("/", "\\")
+SHARE_DIR = WIN_ROOT + "\\share"
+SHORTCUT = "Set up Mac shared folder.cmd"
+LABEL = "Lazy Link shared folder"
+
+CMD = r"""@echo off
+rem Double-click me once. Windows asks for admin permission, then sets up the folder your Mac opens.
+rem What it changes: {script} (top of the file). I delete myself when it worked.
+net session >nul 2>&1
+if not errorlevel 1 goto run
+powershell -NoProfile -Command "Start-Process -Verb RunAs -FilePath '%~f0'"
+exit /b
+:run
+powershell -NoProfile -ExecutionPolicy Bypass -File "{script}" -Folder "{folder}"
+if errorlevel 1 (
+  echo.
+  echo Something stopped it; nothing after that point was changed. Tell Claude what it says above.
+  pause
+  exit /b 1
+)
+echo.
+pause
+(goto) 2>nul & del "%~f0"
+"""
+
+
+def need_windows():
+    if pj.OS_NAME != "windows":
+        sys.exit("pcshare: Windows PCs only for now (pc_os in config.json).")
+
+
+def status():
+    out = pj.ps(f"$f='{SHARE_DIR}\\status.json'; if (Test-Path $f) {{ Get-Content -Raw $f }}", check=False)
+    try:
+        return json.loads(out) if out else None
+    except json.JSONDecodeError:
+        return None
+
+
+def address():
+    return CFG["pc_address"]
+
+
+def keychain_has(acct):
+    return subprocess.run(["security", "find-internet-password", "-a", acct, "-s", address(), "-r", "smb "],
+                          capture_output=True).returncode == 0
+
+
+def cmd_setup(a):
+    need_windows()
+    pj.ps(f"New-Item -ItemType Directory -Path '{SHARE_DIR}' -Force | Out-Null")
+    pj.scp(str(REPO / "pc" / "setup-share.ps1"), f"{HOST}:{ROOT}/share/setup-share.ps1")
+    cmd = CMD.format(script=SHARE_DIR + "\\setup-share.ps1", folder=a.folder).replace("\n", "\r\n")
+    b64 = __import__("base64").b64encode(cmd.encode("ascii")).decode()
+    r = pj.ps(f"$p=Join-Path $env:PUBLIC 'Desktop\\{SHORTCUT}'; "
+              f"try {{ [IO.File]::WriteAllBytes($p, [Convert]::FromBase64String('{b64}')); 'ok' }} catch {{ 'no:' + $_.Exception.Message }}")
+    if r != "ok":
+        sys.exit(f"pcshare: could not write to the PC's Public Desktop ({r}). Copy pc/setup-share.ps1 over and run it "
+                 "from an admin PowerShell instead.")
+    print(f'On the PC\'s desktop: "{SHORTCUT[:-4]}". Double-click it once and say Yes to the admin prompt.')
+    print("Then here: pcshare keychain, then pcshare check.")
+
+
+def cmd_keychain(a):
+    need_windows()
+    st = status()
+    if not st:
+        sys.exit("pcshare: not set up on the PC yet (no status.json). Run the desktop shortcut there first.")
+    acct = st["account"]
+    pw = pj.ps(f"$f='{SHARE_DIR}\\{acct}.secret'; if (Test-Path $f) {{ Get-Content -Raw $f }}", check=False)
+    if not pw:
+        if keychain_has(acct):
+            print("already in the keychain (the PC's copy is gone)")
+            return
+        sys.exit("pcshare: no password waiting on the PC. Run the desktop shortcut again (it makes a new one).")
+    if not pw.isalnum():
+        sys.exit("pcshare: the password file on the PC looks wrong; run the desktop shortcut again.")
+    # security -i reads the command from stdin, so the password never shows up in a process list
+    line = f'add-internet-password -U -a {acct} -s {address()} -r "smb " -l "{LABEL}" -w {pw}\n'
+    r = subprocess.run(["security", "-i"], input=line, capture_output=True, text=True)
+    pw = line = None
+    if r.returncode != 0 or not keychain_has(acct):
+        sys.exit("pcshare: the keychain did not take it (is the login keychain unlocked?). The PC's copy is kept.")
+    pj.ps(f"Remove-Item -Force '{SHARE_DIR}\\{acct}.secret'")
+    print(f"keychain: {acct} @ {address()} saved; the PC's copy is deleted")
+
+
+def cmd_check(a):
+    need_windows()
+    ok = True
+    st = status()
+    if not st:
+        print("share: not set up on the PC yet (pcshare setup, then the desktop shortcut there)")
+        sys.exit(1)
+    print(f"share:    {st['unc']}  (folder {st['folder']}, {st['free_gb']} GB free when set up, "
+          f"encrypted: {'yes' if st['encrypted'] else 'NO'})")
+    print(f"address:  smb://{st['account']}@{address()}/{st['share']}")
+    print(f"account:  {st['account']} (a local account on the PC; Finder may show it as {st['account_full']})")
+    try:
+        socket.create_connection((address(), 445), timeout=4).close()
+        print("port 445: reachable from this Mac")
+    except OSError as e:
+        ok = False
+        print(f"port 445: NOT reachable ({e}); the PC's network must be Private and the firewall rule in place")
+    if keychain_has(st["account"]):
+        print("keychain: password saved")
+        r = subprocess.run(["smbutil", "view", "-N", f"//{st['account']}@{address()}"], capture_output=True, text=True, timeout=30)
+        listed = st["share"].lower() in r.stdout.lower()
+        ok &= listed
+        print("login:    ok, the share is listed" if listed else
+              f"login:    FAILED ({(r.stderr or r.stdout).strip().splitlines()[-1:] or ['no answer']})")
+    else:
+        ok = False
+        print("keychain: no password yet (pcshare keychain)")
+    sys.exit(0 if ok else 1)
+
+
+def cmd_mount(a):
+    need_windows()
+    st = status() or sys.exit("pcshare: not set up on the PC yet")
+    d = Path(a.dir).expanduser()
+    if f" on {d} " in subprocess.run(["mount"], capture_output=True, text=True).stdout:
+        print(f"already open at {d}")
+        return
+    d.mkdir(parents=True, exist_ok=True)
+    # no password on the command line: mount_smbfs takes it from the keychain entry `pcshare keychain` saved
+    r = subprocess.run(["mount_smbfs", "-N", f"//{st['account']}@{address()}/{st['share']}", str(d)], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"pcshare: could not open it ({r.stderr.strip()}). Try: pcshare check")
+    print(f"open at {d}")
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("setup"); s.add_argument("--folder", default="D:\\MacShare"); s.set_defaults(f=cmd_setup)
+    sub.add_parser("keychain").set_defaults(f=cmd_keychain)
+    sub.add_parser("check").set_defaults(f=cmd_check)
+    m = sub.add_parser("mount"); m.add_argument("dir", nargs="?", default="~/PCShare"); m.set_defaults(f=cmd_mount)
+    a = p.parse_args()
+    a.f(a)
+
+
+if __name__ == "__main__":
+    main()

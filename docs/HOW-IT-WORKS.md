@@ -76,3 +76,12 @@ Whisper large-v3 turns speech into text with word timings: captions, transcripts
 Fast generation makes it easy to ship junk. So: look at every image (models drift toward famous
 characters), measure sounds for harsh peaks before listening, and render 3D models as turntable
 pictures before they go into a game.
+
+## 9. A shared folder (optional)
+Moving big files over SSH is fine for jobs, but a Mac that is short of space wants a folder on the PC's big drive
+that Finder opens like a disk. `mac/pcshare setup` puts "Set up Mac shared folder" on the PC's desktop; double-click
+it once and say Yes. It adds a second hidden standard account, `macshare`, that may only open that folder (the
+job account and you can too), shares the folder encrypted, and opens port 445 on Private networks from the home
+network only. The password is random: `pcshare keychain` moves it straight into the Mac's keychain and deletes the
+PC's copy, so nobody types or sees it, and the Mac never holds your own Windows password. `pcshare check` says
+whether it all works; `setup-share.ps1 -Undo` (admin) takes it off and leaves the files.
