@@ -12,6 +12,9 @@ The goal is to let the Mac in and nobody else, without giving it the keys to the
 - **A separate account, `lazylink`.** Standard rights (not an administrator), hidden from the sign-in
   screen, random password nobody knows. If something went wrong in a job, it can only touch what
   `lazylink` can touch: its own work folder, `C:\lazylink`.
+  A PC set up before 2026-10-30 has the account `render` and the folder `C:\render` instead; that keeps
+  working as it is: config.json `ssh_host` and `pc_root` name them, and the runner takes its folder from
+  where it is installed. Running Setup-PC again (admin) moves it over to `lazylink` and `C:\lazylink`.
 - **OpenSSH, key only.** Windows has an SSH server built in. Setup turns off passwords and allows
   exactly one account with exactly one key: the one `install-mac.sh` made on your Mac.
 - **Firewall: home network only.** One rule: port 22, only on *Private* networks, only from your
