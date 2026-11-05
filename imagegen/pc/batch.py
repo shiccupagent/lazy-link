@@ -12,9 +12,9 @@ inputs named in models.json "recipes") and every file it saves (audio, 3D model,
 import json, mimetypes, os, shutil, subprocess, sys, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 
-M = json.load(open("models.json"))
-ASKS = json.load(open("asks.json"))
-WANT = json.load(open("want.json"))
+M = json.load(open("models.json", encoding="utf-8"))
+ASKS = json.load(open("asks.json", encoding="utf-8"))
+WANT = json.load(open("want.json", encoding="utf-8"))
 OUT = Path(os.environ["RENDER_OUT"])
 BASE = Path(os.environ["RENDER_ROOT"])
 ROOT = BASE / M["comfy"]["dir"]
@@ -138,24 +138,103 @@ def upload(path):
 
 def run_recipe(key, timings):
     r = M["recipes"][key]
-    base = json.load(open(Path("recipes") / f"{r['template']}.api.json"))
+    base = json.load(open(Path("recipes") / f"{r['template']}.api.json", encoding="utf-8"))
     for i, ask in enumerate(ASKS):
         g = json.loads(json.dumps(base))
         for name, value in {**r.get("fixed", {}), **ask.get("params", {})}.items():
             node, inp = r["params"][name] if name in r["params"] else name.split(".", 1)
             g[node]["inputs"][inp] = value
-        if "image" in ask:
+        if "image" in ask and "start_image" in r:   # video: the picture becomes the first frame (the template leaves it unwired)
+            node, inp = r["start_image"]
+            g["start"] = {"class_type": "LoadImage", "inputs": {"image": upload(Path("inputs") / ask["image"])}}
+            g[node]["inputs"][inp] = ["start", 0]
+        elif "image" in ask:
             node, inp = r["image"]
             g[node]["inputs"][inp] = upload(Path("inputs") / ask["image"])
+        if ask.get("cutout") is True and "frames" in r:   # video: BiRefNet on every frame -> RGBA frames, made into a .webm below
+            g["bgm"] = {"class_type": "LoadBackgroundRemovalModel", "inputs": {"bg_removal_name": resolve("cutout", M["cutout"]["model"])}}
+            g["fg"] = {"class_type": "RemoveBackground", "inputs": {"bg_removal_model": ["bgm", 0], "image": r["frames"]}}
+            g["bgmask"] = {"class_type": "InvertMask", "inputs": {"mask": ["fg", 0]}}
+            g["rgba"] = {"class_type": "JoinImageWithAlpha", "inputs": {"image": r["frames"], "alpha": ["bgmask", 0]}}
+            g["save_cut"] = {"class_type": "SaveImage", "inputs": {"images": ["rgba", 0], "filename_prefix": "cutframes/f"}}
         secs, files = run_one(g)
+        if "frames" in r:   # a video recipe: loop and cutout are done here, after ComfyUI
+            cut = sorted((f for f in files if f.get("subfolder", "").startswith("cutframes")), key=lambda f: f["filename"])
+            files = [f for f in files if f not in cut]
+            t1 = time.time()
+            finish_video(ask, key, [SCRATCH / "out" / f.get("subfolder", "") / f["filename"] for f in files],
+                         [SCRATCH / "out" / f.get("subfolder", "") / f["filename"] for f in cut])
+            secs += time.time() - t1
+            files = []
         for n, f in enumerate(sorted(files, key=lambda f: f["filename"])):
             ext = Path(f["filename"]).suffix
             dest = OUT / f"{ask['name']}__{key}{'' if n == 0 else '-' + str(n)}{ext}"
             shutil.move(str(SCRATCH / "out" / f.get("subfolder", "") / f["filename"]), dest)
         row = {"model": key, "ask": ask["name"], "seconds": round(secs, 2), "cold": i == 0,
-               "files": len(files), "vram_mb": vram_used_mb()}
+               "files": len(files) or len(list(OUT.glob(f"{ask['name']}__{key}*"))), "vram_mb": vram_used_mb()}
         timings["runs"].append(row)
         print(json.dumps(row), flush=True)
+
+
+def finish_video(ask, key, saved, cut):
+    """The clip ComfyUI saved -> OUT/<name>__<key>.mp4; with "cutout", also <name>__<key>-cutout.webm (VP9 with
+    alpha, plays in Chrome/Android/Firefox) and, with "frames": true, the RGBA frames as <name>__<key>-cutout/NNN.png.
+    "cutout": true = BiRefNet (solid things; it drops motion-blurred ones), "black" = a brightness key for glows,
+    sparks and things falling on black (dark = clear, the colour un-darkened so it looks the same over anything).
+    "loop": S crossfades the last S seconds into the first S, so the clip repeats with no jump (it gets S shorter)."""
+    import av, numpy as np
+    from PIL import Image
+    src = next(p for p in saved if p.suffix.lower() in (".mp4", ".webm", ".mov"))
+    with av.open(str(src)) as c:
+        s = c.streams.video[0]
+        fps = s.average_rate or 24
+        rgb = [f.to_ndarray(format="rgb24") for f in c.decode(s)]
+    alpha = None
+    if cut:
+        if len(cut) != len(rgb):
+            sys.exit(f"batch: {ask['name']}: {len(cut)} cutout frames for {len(rgb)} video frames")
+        alpha = [np.asarray(Image.open(p))[..., 3] for p in cut]
+    elif ask.get("cutout") == "black":
+        lo, hi = 10.0, 110.0   # max channel: below lo clear, above hi solid
+        alpha = [(np.clip((f.max(axis=2).astype(np.float32) - lo) / (hi - lo), 0, 1) * 255).round().astype(np.uint8) for f in rgb]
+    k = int(round(float(ask.get("loop", 0)) * float(fps)))
+    if k:
+        if k * 2 >= len(rgb):
+            sys.exit(f"batch: {ask['name']}: loop {ask['loop']} s is too long for a {len(rgb) / float(fps):.1f} s clip")
+        def fold(fr):   # frame i of the first k = the clip's tail fading into its head (equal weights sum to 1)
+            n = len(fr)
+            head = [(fr[n - k + i].astype(np.float32) * (1 - (i + 1) / (k + 1)) +
+                     fr[i].astype(np.float32) * ((i + 1) / (k + 1))).round().astype(np.uint8) for i in range(k)]
+            return head + fr[k:n - k]
+        rgb = fold(rgb)
+        alpha = fold(alpha) if alpha else None
+    name = f"{ask['name']}__{key}"
+    h, w = rgb[0].shape[:2]
+
+    def write(path, codec, fmt, frames, opts, container=None):
+        with av.open(str(path), "w", options=container or {}) as o:
+            st = o.add_stream(codec, rate=fps)
+            st.width, st.height, st.pix_fmt, st.options = w, h, fmt, opts
+            for fr in frames:
+                for p in st.encode(av.VideoFrame.from_ndarray(fr, format="rgba" if fr.shape[2] == 4 else "rgb24")):
+                    o.mux(p)
+            for p in st.encode():
+                o.mux(p)
+
+    write(OUT / f"{name}.mp4", "libx264", "yuv420p", rgb, {"crf": "16", "preset": "slow"}, {"movflags": "+faststart"})
+    if alpha:
+        if ask.get("cutout") == "black":   # the frame was the colour times alpha over black: divide it back out
+            rgb = [np.clip(c.astype(np.float32) * 255 / np.maximum(a, 1)[..., None], 0, 255).astype(np.uint8)
+                   for c, a in zip(rgb, alpha)]
+        rgba = [np.dstack([c, a]) for c, a in zip(rgb, alpha)]
+        write(OUT / f"{name}-cutout.webm", "libvpx-vp9", "yuva420p", rgba, {"crf": "24", "b": "0", "row-mt": "1", "auto-alt-ref": "0"})
+        if ask.get("frames"):
+            d = OUT / f"{name}-cutout"
+            d.mkdir(exist_ok=True)
+            for i, f in enumerate(rgba):
+                Image.fromarray(f).save(d / f"{i:03d}.png", optimize=False)
+    for p in [*saved, *cut]:
+        p.unlink(missing_ok=True)
 
 
 def site_packages():

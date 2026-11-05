@@ -156,6 +156,24 @@
    "size": 1187264003,
    "sha256": "1e1eba25be8872edb0d3c6335c6658fd6388e7b14b60da6e454e404cfcd8150e",
    "url": "https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/text_encoders/t5gemma_b_b_ul2.safetensors"
+  },
+  "wan2.2_ti2v_5B_fp16.safetensors": {
+   "dir": "diffusion_models",
+   "size": 9999658848,
+   "sha256": "456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e",
+   "url": "https://huggingface.co/Comfy-Org/Wan-2.2/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors"
+  },
+  "wan2.2_vae.safetensors": {
+   "dir": "vae",
+   "size": 1409400960,
+   "sha256": "e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156",
+   "url": "https://huggingface.co/Comfy-Org/Wan-2.2/resolve/main/split_files/vae/wan2.2_vae.safetensors"
+  },
+  "umt5_xxl_fp8_e4m3fn_scaled.safetensors": {
+   "dir": "text_encoders",
+   "size": 6735906897,
+   "sha256": "c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68",
+   "url": "https://huggingface.co/Comfy-Org/Wan-2.1/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
   }
  },
  "defaults": {"picture": "krea2", "_doc": "the picture model imagegen.py uses when none is named. Bump a model's or recipe's \"version\" whenever its settings or files change, so anything made with the old one can be found and re-made."},
@@ -349,6 +367,35 @@
     "image"
    ],
    "_doc": "hand-written workflow, not converted: ComfyUI has no template for it, so recipes/moge_maps.api.json is edited by hand. <name>__maps.png = normal map (OpenGL, +Y up, the glTF/three.js convention), <name>__maps-1.png = depth (white = near). MoGe estimates camera-space geometry, so a flat texture shot head-on gives a usable surface normal map; bumpmaps.py strips any overall tilt."
+  },
+  "video": {
+   "version": 1,
+   "label": "Wan 2.2 TI2V 5B (text or picture to video, 1280x704, 24 fps)",
+   "licence": "Apache-2.0: any commercial use (Wan-AI/Wan2.2-TI2V-5B; ComfyUI repack Comfy-Org/Wan-2.2)",
+   "template": "video_wan2_2_5B_ti2v",
+   "files": [
+    "wan2.2_ti2v_5B_fp16.safetensors",
+    "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+    "wan2.2_vae.safetensors"
+   ],
+   "params": {
+    "prompt": ["6", "text"],
+    "negative": ["7", "text"],
+    "width": ["55", "width"],
+    "height": ["55", "height"],
+    "length": ["55", "length"],
+    "seed": ["3", "seed"],
+    "steps": ["3", "steps"],
+    "cfg": ["3", "cfg"]
+   },
+   "fixed": {
+    "58.filename_prefix": "video/video"
+   },
+   "start_image": ["55", "start_image"],
+   "frames": ["8", 0],
+   "fps": 24,
+   "_doc": "ask: {name, params: {prompt, seconds (or length = 4n+1 frames), width, height (multiples of 32; 1280x704 native, 768x768 or 512x512 are quicker), seed}, image: first frame (optional), loop: S, cutout: true, frames: true}. <name>__video.mp4; loop S crossfades the last S seconds into the first; cutout adds <name>__video-cutout.webm (VP9 with alpha, BiRefNet per frame) and frames adds its PNG frames. cutout true = BiRefNet per frame (solid things; it drops motion-blurred ones), cutout \"black\" = brightness key for glows, sparks and things falling on black. The negative prompt is the template's own (Chinese, as Wan was trained). Kiln (3090) 2026-11-04: 768x768 3 s 145 s cold / 109 s warm, 1280x704 4 s 261 s, 512x512 3 s 72 s; 12-16 GB in use after a clip.",
+   "min_vram_gb": 16
   }
  }
 }

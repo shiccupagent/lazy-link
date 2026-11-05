@@ -12,6 +12,12 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./imagegen/imagegen.py one "prompt" --out DIR [--model krea2|klein|zimage] [--size WxH] [--cutout]`
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
 - `./imagegen/imagegen.py make audio|sfx|mesh|maps ASKS.json --out DIR`: sounds/music, picture to 3D, or picture to normal + depth maps (MoGe-2).
+- `./imagegen/imagegen.py make video ASKS.json --out DIR`: short clips from a prompt, or from a picture as the first frame (Wan 2.2
+  TI2V 5B, Apache-2.0, 24 fps). Ask: `{"name", "params": {"prompt", "seconds", "width", "height", "seed"}, "image": "first.png",
+  "loop": 0.5, "cutout": true, "frames": true}`; `loop` crossfades the end into the start so it repeats; `cutout` adds a
+  transparent `.webm` (VP9 alpha), `frames` its PNG frames. `"cutout": true` = BiRefNet (solid things; drops motion-blurred
+  ones), `"cutout": "black"` = brightness key for glows, sparks and things falling on black (prompt for a black background).
+  Sizes in multiples of 32; a 3 s 768x768 clip takes about 2 min on a 3090. Look at every clip before you use it.
 - `./imagegen/imagegen.py tile PICTURE... --out DIR`: seamless copy of each surface picture (`<name>_tile.png` + a 2x2 preview to check the seams); no AI, needs numpy, scipy, Pillow on this computer.
 - `./imagegen/imagegen.py pbr PICTURE... --out DIR [--material NAME] [--rough R] [--rough-var V] [--detail D] [--metal 0|1|edges] [--tile] [--model heuristic]`: roughness, metal and packed ORM maps from a surface picture (`<name>_roughness.png`, `_metal.png`, `_orm.png`, `_pbr.json`; reads `<name>_height.png` and `<name>_ao.png` beside it); no AI, needs numpy and Pillow on this computer; presets in imagegen/pbr_materials.json.
 - `./imagegen/imagegen.py bump PICTURE... --out DIR [--tile] [--slope S] [--highpass R] [--object [--plain]]`: bump maps (`<name>_normal.png` + `_height.png` + `_ao.png`) from a surface picture; runs `make maps` on the PC, then needs numpy, scipy, Pillow on this computer. `--tile` makes the maps wrap for seamless pictures; `--object` gives a normal map only for sprites and whole scenes (`--plain` takes the colour out first). `--highpass R` takes out waves wider than R px (height and AO follow); `--slope S` steepens a flat map.

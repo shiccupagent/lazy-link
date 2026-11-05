@@ -60,7 +60,7 @@ a textured 3D model in 2.5-8.5 min, and a chat model writing about 200 tokens (r
 ### What gets installed
 Everything goes into the PC's work folder (`C:\lazylink`); nothing needs admin, and `Undo-PC -RemoveWorkFolder`
 takes it all away. Pick jobs with `--want` (comma-separated) or a kit from `kits.json` with `--kit`.
-With neither, `--setup` installs every job that fits your card except `maps` and `voice`.
+With neither, `--setup` installs every job that fits your card except `maps`, `video` and `voice`.
 
 | Job | What you can do | What it installs | Download |
 |---|---|---|---|
@@ -68,6 +68,7 @@ With neither, `--setup` installs every job that fits your card except `maps` and
 | `sounds` | sound effects, music | Stable Audio 3 (small and/or medium) | 4-14 GB |
 | `3d` | picture to 3D model (.glb) | Pixal3D + TRELLIS.2 | about 15 GB |
 | `maps` | bump maps for game surfaces | MoGe-2 | under 1 GB |
+| `video` | short clips: text or picture to video, loops, transparent .webm | Wan 2.2 TI2V 5B | about 18 GB |
 | `text` | chat, speech-to-text | llama.cpp, Qwen3-30B-A3B, gpt-oss-20b, Whisper large-v3 | about 35 GB |
 | `voice` | copy your own voice | Chatterbox + its own PyTorch, the "Record voices" icon | about 6 GB |
 
@@ -104,6 +105,7 @@ They need ffmpeg and `pip3 install numpy scipy pillow` on your small computer.
 ./imagegen/imagegen.py run imagegen/examples/images.json --out out/          # many at once
 ./imagegen/imagegen.py make audio imagegen/examples/sounds.json --out out/   # sounds / music
 ./imagegen/imagegen.py make mesh imagegen/examples/mesh.json --out out/      # picture -> 3D (.glb)
+./imagegen/imagegen.py make video imagegen/examples/video.json --out out/    # short looping clips (.mp4, + transparent .webm)
 ./imagegen/imagegen.py preview out/                                          # 3D turntable pictures (needs Blender on the PC)
 ./imagegen/imagegen.py tile floor.png --out out/                             # seamless copy of a surface picture (no AI; a 2x2 preview shows the seams)
 ./imagegen/imagegen.py bump floor.png --out out/                             # bump maps: a normal map + a height map, so a flat picture looks raised in games and 3D
@@ -292,6 +294,7 @@ More: [docs/FAQ.md](docs/FAQ.md) (for example, how to let your AI organise your 
 | Transparent cutouts | BiRefNet | MIT |
 | Sounds and music | Stable Audio 3 (small / medium) | Stability AI Community: free while yearly revenue < $1M |
 | Picture to 3D | Pixal3D + TRELLIS.2 | MIT |
+| Video | Wan 2.2 TI2V 5B | Apache-2.0 |
 | Chat | Qwen3-30B-A3B, gpt-oss-20b | Apache-2.0 |
 | Speech-to-text | Whisper large-v3 (faster-whisper) | MIT |
 

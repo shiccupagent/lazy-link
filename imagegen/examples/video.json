@@ -1,0 +1,25 @@
+[
+ {
+  "name": "coins",
+  "params": {
+   "prompt": "A steady cascade of shiny gold coins pouring down from above and tumbling, spinning and glinting as they fall, warm golden highlights, crisp metal edges, dramatic studio lighting, centered, camera locked off, isolated on a plain solid pure black background, smooth motion",
+   "seconds": 3,
+   "width": 768,
+   "height": 768,
+   "seed": 11
+  },
+  "loop": 0.5,
+  "cutout": "black"
+ },
+ {
+  "name": "burst",
+  "params": {
+   "prompt": "Celebration burst: radiant golden sunburst rays slowly rotating from the center, glittering gold sparkles bursting outward and fading, soft warm glow, symmetrical, camera locked off, plain solid black background, no text",
+   "seconds": 4,
+   "width": 1280,
+   "height": 704,
+   "seed": 7
+  },
+  "loop": 0.75
+ }
+]

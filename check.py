@@ -4,7 +4,7 @@ after months or years switched off, then say which AI models it can run and the 
 
   ./check.py              the report, plus what to install
   ./check.py --setup      the report, then install what it recommends
-  ./check.py --setup --want images,sounds   only those jobs (images, sounds, 3d, maps, text, voice)
+  ./check.py --setup --want images,sounds   only those jobs (images, sounds, 3d, maps, video, text, voice)
   ./check.py --setup --kit game-assets      a ready-made set from kits.json
   ./check.py --from FILE  the report from an earlier check.json (no PC needed)
   ./check.py --tidy       sizes of what can be cleaned on the PC; asks before deleting Lazy Link's own files (--yes skips the question)
@@ -27,7 +27,8 @@ LOCAL = {"qwen": ("Qwen3-30B-A3B chat", 18.6, 20.0), "gptoss": ("gpt-oss-20b cha
          "whisper": ("Whisper large-v3 speech-to-text", 3.1, 5.0)}   # name, download GB, graphics memory GB to run fast
 # What each job installs (--want); README "What gets installed" says the same in plain words.
 JOBS = {"images": "pictures, plus transparent cutouts", "sounds": "sound effects and music", "3d": "picture to 3D model",
-        "maps": "bump maps for surfaces (normal + depth)", "text": "chat models and speech-to-text",
+        "maps": "bump maps for surfaces (normal + depth)", "video": "short video clips (text or picture to video)",
+        "text": "chat models and speech-to-text",
         "voice": "copy your own voice (Windows PC)"}
 VOICE_GB = 5.7   # Chatterbox model files 3.2 GB + its own torch 2.5 GB (voice/chatterbox.json)
 DRIVER_MIN, DRIVER_GOOD = 527.41, 551.61   # CUDA 12 runs from 527.41; our CUDA 12.4 builds want 551.61+ on Windows
@@ -53,8 +54,8 @@ def rate(need, vram, ram):
 
 
 def plan(c, want=None):
-    """want: a set of JOBS keys, or None for the default (everything that fits except maps and voice)."""
-    on = lambda j: (j not in ("maps", "voice")) if want is None else j in want
+    """want: a set of JOBS keys, or None for the default (everything that fits except maps, video and voice)."""
+    on = lambda j: (j not in ("maps", "video", "voice")) if want is None else j in want
     gpu = max(c.get("gpus") or [{}], key=lambda g: g.get("vram_gb", 0))
     ram = c.get("ram_gb") or 0
     # A Mac chip shares its memory with the system: about 70% of the RAM can hold a model, and none of it is spare on top.
@@ -67,7 +68,8 @@ def plan(c, want=None):
         rows.append((m["label"], "images", image_need(m), rate(image_need(m), vram, spare), k))
     for k, r in MODELS["recipes"].items():
         if isinstance(r, dict):
-            rows.append((r["label"], "sound" if k != "mesh" else "3D", recipe_need(r), rate(recipe_need(r), vram, spare), k))
+            kind = {"mesh": "3D", "maps": "maps", "video": "video"}.get(k, "sound")
+            rows.append((r["label"], kind, recipe_need(r), rate(recipe_need(r), vram, spare), k))
     for k, (label, _, need) in LOCAL.items():
         rows.append((label, "text", need, rate(need, vram, spare), k))
     ok = {r[4]: r[3] for r in rows}
@@ -80,7 +82,7 @@ def plan(c, want=None):
             images = ["klein"]
     if on("sounds"):
         recipes = [k for k in ("sfx", "audio") if ok.get(k) == "fast"] or ([] if ok.get("sfx") == "no" else ["sfx"])
-    recipes += [k for k, j in (("mesh", "3d"), ("maps", "maps")) if on(j) and ok.get(k) == "fast"]
+    recipes += [k for k, j in (("mesh", "3d"), ("maps", "maps"), ("video", "video")) if on(j) and ok.get(k) == "fast"]
     local = on("text") and ok["whisper"] != "no" and (ok["qwen"] != "no" or ok["gptoss"] != "no")
     voice = on("voice") and bool(gpu.get("vram_gb")) and not gpu.get("unified_memory")
     files = set()

@@ -8,7 +8,7 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
   imagegen.py run ASKS.json --out DIR [--models zimage,klein,krea2] [--timeout S]
   imagegen.py one "prompt" --out DIR [--model krea2] [--size 1024x1024] [--seed N] [--name N]
   imagegen.py fetch [--models krea2] [--recipes audio,mesh]   download missing model files (official repos, sha256-checked)
-  imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh) or maps (normal + depth) from a recipe
+  imagegen.py make RECIPE ASKS.json --out DIR   sound (sfx, audio), 3D (mesh), maps (normal + depth) or video from a recipe
   imagegen.py tile PICTURE... --out DIR      seamless copy of each surface picture, on this computer, no AI (tiles.py)
   imagegen.py pbr PICTURE... --out DIR [--material NAME] [--rough R] [--rough-var V] [--detail D] [--metal 0|1|edges] [--tile]
                                              roughness, metal and ORM maps from surface pictures, on this computer, no AI (pbr.py)
@@ -22,6 +22,8 @@ headless) and bring the files back to the Mac. Models, licences and settings: mo
 
 For make, ASKS.json is a list of {"name": "...", "params": {"prompt": "...", ...}, "image": "in.png"}:
 params are the recipe's named inputs (models.json "recipes"), image (3D) is a local file.
+make video: params also take "seconds"; "image" is the first frame; "loop": S, "cutout": true, "frames": true
+(see models.json "recipes" "video" _doc).
 ASKS.json is a list of {"name": "...", "prompt": "...", "w": 1024, "h": 1024, "seed": 1, "cutout": false}.
 Repaint part of a picture: "init": "in.png", "mask": "mask.png" (white = repaint), "denoise": 0.6; the pictures are
 found beside ASKS.json (or by full path) and sent with the job; pixels outside the mask come back exactly.
@@ -133,6 +135,10 @@ def make(key, asks, out, timeout):
     out = Path(out).expanduser().resolve()
     base = Path(asks).parent
     asks = json.loads(Path(asks).read_text(encoding="utf-8-sig"))
+    for x in asks:   # video: "seconds" -> the frame count the model takes (4n + 1)
+        p = x.get("params", {})
+        if "fps" in r and "seconds" in p:
+            p["length"] = round(float(p.pop("seconds")) * r["fps"] / 4) * 4 + 1
     with tempfile.TemporaryDirectory() as td:
         a = Path(td) / "asks.json"
         json.dump(asks, open(a, "w"), indent=1)
