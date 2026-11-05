@@ -13,7 +13,7 @@ real clock never matters. The page must expose two things (docs/WEB-TO-VIDEO.md)
 The PC needs Node 22 or newer, Chrome (or Chromium) and ffmpeg. The Windows job (job.ps1) and the
 Linux/Mac job (job.sh) run the same steps; the Windows one is tested on an RTX 3090 PC (docs/WEB-TO-VIDEO.md).
 """
-import argparse, math, re, shutil, sys, tempfile
+import argparse, json, math, re, shutil, sys, tempfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -115,6 +115,11 @@ def main():
         query = Path(td) / "query.txt"
         query.write_text(a.query.lstrip("?"), encoding="utf-8")
         files.append((query, "query.txt"))
+        about = Path(td) / "about.json"   # pcjob notes it (mac/sent/<id>.json), so a dashboard can say what is filmed
+        about.write_text(json.dumps({"what": f"a {a.seconds:g} s film of {page.parent.name}/{page.name}"
+                                     + (f"?{a.query.lstrip('?')}" if a.query.lstrip("?") else "") + f" at {w}x{h}"}),
+                         encoding="utf-8")
+        files.append((about, "about.json"))
         result = Path(td) / "result"
         result.mkdir()
         marks = dict(SECS=f"{a.seconds:g}", FPS=a.fps, W=w, H=h, PAGE=page.name, MID=f"{frames // 2:05d}")
