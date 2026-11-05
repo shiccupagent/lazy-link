@@ -30,7 +30,7 @@ found beside ASKS.json (or by full path) and sent with the job; pixels outside t
 Each result is DIR/<name>__<model>.png (+ <name>__<model>-cutout.png with a transparent
 background when "cutout" is true), plus DIR/timings.json and DIR/comfy.log.
 """
-import argparse, importlib.machinery, importlib.util, json, shutil, sys, tempfile, time
+import argparse, importlib.machinery, importlib.util, json, os, shutil, sys, tempfile, time
 from argparse import Namespace
 from pathlib import Path
 
@@ -75,8 +75,20 @@ def model_keys(s):
     return keys
 
 
-def send(files, ps1, want, name, out, timeout, sh=None):
-    """Run a job on the PC: ps1 is the Windows script, sh the POSIX job.sh (Linux or Mac). Every command passes both."""
+def warm_spec():
+    """warm.json: the ComfyUI the Windows runner keeps up between jobs (pc/runner.ps1 "Warm server"). One source of
+    truth for how it starts: models.json comfy.server_args, which batch.py also uses when it starts its own."""
+    c = MODELS["comfy"]
+    scratch = "{root}/tmp/comfy"
+    return {"name": "comfy", "version": c["version"], "exe": c["venv"] + "/Scripts/python.exe", "cwd": c["dir"],
+            "args": [a.replace("{port}", str(c["port"])).replace("{scratch}", scratch) for a in c["server_args"]],
+            "mkdirs": [scratch + d for d in ("/out", "/temp", "/user")], "url": f"http://127.0.0.1:{c['port']}",
+            "health": "/system_stats", "idle_s": c["warm_idle_s"], "max_age_s": c["warm_max_age_s"]}
+
+
+def send(files, ps1, want, name, out, timeout, sh=None, warm=False):
+    """Run a job on the PC: ps1 is the Windows script, sh the POSIX job.sh (Linux or Mac). Every command passes both.
+    warm=True: ComfyUI jobs; the Windows runner keeps ComfyUI up for the next one (LAZY_WARM=0 turns it off)."""
     pc = load_pcjob()
     if pc.POSIX and sh is None:   # refuse before pc.wake(): nothing is woken for a command with no POSIX script
         sys.exit(f"imagegen: this command has no {pc.OS_NAME} script yet")
@@ -90,6 +102,8 @@ def send(files, ps1, want, name, out, timeout, sh=None):
             shutil.copy(src, job / rel)
         (job / ("job.sh" if pc.POSIX else "job.ps1")).write_text(sh if pc.POSIX else ps1)
         json.dump(want, open(job / "want.json", "w"))
+        if warm and not pc.POSIX and os.environ.get("LAZY_WARM", "1") != "0":
+            json.dump(warm_spec(), open(job / "warm.json", "w"), sort_keys=True)
         # the PC-side scripts read your extra model folders from here (config.json, never anything else)
         json.dump({"extra_model_folders": pc.CFG.get("extra_model_folders", {})}, open(job / "link.json", "w"))
         job_id = pc.cmd_run(Namespace(dir=str(job), name=name, timeout=timeout, wait=True, fetch=str(out)))
@@ -103,9 +117,9 @@ def run(asks, keys, out, timeout, inputs=()):
     with tempfile.TemporaryDirectory() as td:
         a = Path(td) / "asks.json"
         json.dump(asks, open(a, "w"), indent=1)
-        send([HERE / "models.json", HERE / "pc" / "batch.py", a, *inputs], RUN_PS1, keys, "imagegen", out, timeout, sh=RUN_SH)
+        send([HERE / "models.json", HERE / "pc" / "batch.py", a, *inputs], RUN_PS1, keys, "imagegen", out, timeout, sh=RUN_SH, warm=True)
     t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
-    print(f"ComfyUI start {t['comfy_boot_s']} s")
+    print(f"ComfyUI start {t['comfy_boot_s']} s ({t.get('comfy', 'own')})")
     for r in t["runs"]:
         print(f"{r['model']:7} {r['ask']:24} {r['seconds']:6.1f} s{'  (first: loads the model)' if r['cold'] else ''}")
     print(f"images in {out}")
@@ -145,9 +159,9 @@ def make(key, asks, out, timeout):
         files = [HERE / "models.json", HERE / "pc" / "batch.py", a,
                  (HERE / "recipes" / f"{r['template']}.api.json", f"recipes/{r['template']}.api.json")]
         files += [(base / x["image"], f"inputs/{x['image']}") for x in asks if "image" in x]
-        send(files, RUN_PS1, {"recipe": key}, f"imagegen-{key}", out, timeout, sh=RUN_SH)
+        send(files, RUN_PS1, {"recipe": key}, f"imagegen-{key}", out, timeout, sh=RUN_SH, warm=True)
     t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
-    print(f"ComfyUI start {t['comfy_boot_s']} s")
+    print(f"ComfyUI start {t['comfy_boot_s']} s ({t.get('comfy', 'own')})")
     for row in t["runs"]:
         print(f"{key:6} {row['ask']:24} {row['seconds']:7.1f} s  {row['files']} file(s){'  (first: loads the model)' if row['cold'] else ''}")
     print(f"results in {out}")

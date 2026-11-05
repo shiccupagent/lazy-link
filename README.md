@@ -236,8 +236,10 @@ using the nine cartoon-mouth letters A-H and X (the table is in `voice/lipsync.p
 `line1.wav` (or pass `--text`) and the shapes land on the right sounds. English only. Draw one mouth per letter, or turn
 the letters into a 3D mouth's jaw and lip numbers; ease into each new shape over about 60 ms so it never snaps.
 
-**Batch your asks.** Each job spends 15-55 s starting ComfyUI or loading a model; after that, every
-extra image or answer is quick. One job with 50 asks beats 50 jobs with one.
+**Batch your asks.** A job spends 15-55 s starting ComfyUI or loading a model; after that, every
+extra image or answer is quick. One job with 50 asks beats 50 jobs with one. On a Windows PC the runner
+keeps ComfyUI running for 10 minutes after a job, so the next picture or sound job starts at once
+(`LAZY_WARM=0` turns that off).
 
 ## Run big jobs when electricity is cheap (optional)
 If your power company charges less at night, put the cheap hours in `config.json`:

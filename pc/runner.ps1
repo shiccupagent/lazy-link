@@ -14,6 +14,15 @@ status.json is the state: queued -> running -> done | failed | timeout | cancell
 A job cancelled before it starts goes straight from queued to cancelled (seconds 0, empty out.tar).
 One job at a time, oldest first. When this file changes on disk the runner exits and the task's
 loop starts the new copy (that is how `pcjob push-runner` updates it).
+
+Warm server: a job whose in.tar has warm.json (imagegen's ComfyUI jobs) gets ONE long-lived helper process that
+the runner owns, in its own kill-on-close job object, so it outlives the job and the next job skips its start:
+  {"name", "exe", "cwd", "args": [...], "mkdirs": [...], "url", "health", "idle_s", "max_age_s", ...}
+  ({root} in exe/cwd/args/mkdirs = this runner's root; exe and cwd are relative to it)
+The job gets env LAZY_WARM = started | reused, LAZY_WARM_URL, LAZY_WARM_PID, LAZY_WARM_LOG (+ LAZY_WARM_LOG.err).
+Same warm.json as the server that is up, and it answers: reused. It is stopped before any job without warm.json
+or with a different one (Blender, voice, setup ... get the whole GPU), when a job does not end 'done', after
+idle_s with no job, after max_age_s, and with the runner (its job object closes).
 #>
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path (Split-Path $MyInvocation.MyCommand.Path)
@@ -69,6 +78,8 @@ public static class Native {
 '@
 $AWAKE = [uint32]2147483649   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
 $RELEASE = [uint32]2147483648 # ES_CONTINUOUS
+$WarmDir = Join-Path $Root 'warm'
+$script:Warm = $null   # @{ name; spec (warm.json text); url; proc; job; started; last; idle_s; max_age_s; log }
 
 # Native tools write warnings to stderr; under 'Stop' PowerShell 5.1 turns those into
 # exceptions, so every native call goes through here and is judged by its exit code only.
@@ -111,6 +122,70 @@ function Skip-Cancelled {
         } catch { Write-Log "could not end cancelled job $($d.Name): $_" }
     }
 }
+function Stop-Warm($why) {
+    $w = $script:Warm
+    if (-not $w) { return }
+    $script:Warm = $null
+    [void][LazyLink.Native]::Kill($w.job)
+    try { $w.proc.WaitForExit(15000) | Out-Null } catch {}
+    [void][LazyLink.Native]::CloseHandle($w.job)
+    Write-Log "warm $($w.name) stopped ($why) after $([math]::Round(((Get-Date) - $w.started).TotalMinutes, 1)) min"
+}
+function Test-WarmAnswers($w) {
+    if ($w.proc.HasExited) { return $false }
+    $ProgressPreference = 'SilentlyContinue'
+    try { Invoke-WebRequest ($w.url + $w.health) -UseBasicParsing -TimeoutSec 5 | Out-Null; return $true } catch { return $false }
+}
+function Expand-Root($s) { return ([string]$s).Replace('{root}', $Root).Replace('/', '\') }
+function Resolve-Root($s) { $p = Expand-Root $s; if ([IO.Path]::IsPathRooted($p)) { return $p }; return (Join-Path $Root $p) }
+# Before a job: reuse, start or stop the warm server, and say which in the job's env. Never fails the job:
+# anything wrong here leaves no warm server, and the job starts its own as it always did.
+function Use-Warm($work) {
+    foreach ($n in 'LAZY_WARM', 'LAZY_WARM_URL', 'LAZY_WARM_PID', 'LAZY_WARM_LOG') { Remove-Item "env:$n" -ErrorAction SilentlyContinue }
+    $f = Join-Path $work 'warm.json'
+    if (-not (Test-Path $f)) { Stop-Warm 'the next job does not use it'; return }
+    try {
+        $text = (Get-Content $f -Raw).Trim()
+        $spec = $text | ConvertFrom-Json
+        $w = $script:Warm
+        if ($w -and $w.spec -ne $text) { Stop-Warm 'the next job wants another one' }
+        elseif ($w -and -not (Test-WarmAnswers $w)) { Stop-Warm 'it stopped answering' }
+        $how = 'reused'
+        if (-not $script:Warm) {
+            $exe = Resolve-Root $spec.exe
+            if (-not (Test-Path $exe)) { throw "no $exe" }
+            foreach ($d in @($spec.mkdirs)) { if ($d) { New-Item -ItemType Directory -Force (Expand-Root $d) | Out-Null } }
+            New-Item -ItemType Directory -Force $WarmDir | Out-Null
+            $wlog = Join-Path $WarmDir "$($spec.name).log"   # not $log: names ignore case, and Write-Log reads $Log
+            # Start-Process joins arguments with spaces: quote the ones that have spaces
+            $argv = @($spec.args | ForEach-Object { $a = ([string]$_).Replace('{root}', $Root); if ($a -match '\s') { '"' + $a + '"' } else { $a } })
+            $p = Start-Process $exe -ArgumentList $argv -WorkingDirectory (Resolve-Root $spec.cwd) -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $wlog -RedirectStandardError "$wlog.err"
+            # Python loads for far longer than this takes, and ComfyUI starts no children, so nothing escapes the job object.
+            $job = [LazyLink.Native]::NewKillOnCloseJob()
+            [LazyLink.Native]::Assign($job, $p.Handle)
+            $script:Warm = @{ name = $spec.name; spec = $text; url = $spec.url; health = $spec.health; proc = $p; job = $job
+                              started = Get-Date; last = Get-Date; idle_s = [int]$spec.idle_s; max_age_s = [int]$spec.max_age_s; log = $wlog }
+            Write-Log "warm $($spec.name) started (pid $($p.Id))"
+            $how = 'started'
+        }
+        $env:LAZY_WARM = $how; $env:LAZY_WARM_URL = $script:Warm.url
+        $env:LAZY_WARM_PID = "$($script:Warm.proc.Id)"; $env:LAZY_WARM_LOG = $script:Warm.log
+    } catch {
+        Write-Log "warm server not used: $_"
+        Stop-Warm 'it could not be used'
+        foreach ($n in 'LAZY_WARM', 'LAZY_WARM_URL', 'LAZY_WARM_PID', 'LAZY_WARM_LOG') { Remove-Item "env:$n" -ErrorAction SilentlyContinue }
+    }
+}
+# Between jobs: stop the warm server when it died, sat idle too long, or got too old.
+function Watch-Warm {
+    $w = $script:Warm
+    if (-not $w) { return }
+    if ($w.proc.HasExited) { Stop-Warm "it exited ($($w.proc.ExitCode))"; return }
+    $now = Get-Date
+    if ($w.idle_s -gt 0 -and ($now - $w.last).TotalSeconds -gt $w.idle_s) { Stop-Warm "idle $($w.idle_s) s"; return }
+    if ($w.max_age_s -gt 0 -and ($now - $w.started).TotalSeconds -gt $w.max_age_s) { Stop-Warm "older than $($w.max_age_s) s" }
+}
 function Invoke-Job($dir) {
     $id = Split-Path $dir -Leaf
     $timeout = 3600
@@ -126,6 +201,7 @@ function Invoke-Job($dir) {
         $rc = Invoke-Native $Tar -xf (Join-Path $dir 'in.tar') -C $work
         if ($rc -ne 0) { throw "tar unpack failed ($rc)" }
         if (-not (Test-Path (Join-Path $work 'job.ps1'))) { throw 'job.ps1 missing from in.tar' }
+        Use-Warm $work
         $env:RENDER_JOB = $id; $env:RENDER_OUT = $out
         $p = Start-Process $Ps -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $work 'job.ps1') `
             -WorkingDirectory $work -WindowStyle Hidden -PassThru `
@@ -152,6 +228,8 @@ function Invoke-Job($dir) {
     } catch {
         $end = 'failed'; $st.error = "$_"
     } finally {
+        # a job that did not finish may have left work queued in the warm server, or broken it: start fresh next time
+        if ($end -ne 'done') { Stop-Warm "job $id ended $end" } elseif ($script:Warm) { $script:Warm.last = Get-Date }
         [void][LazyLink.Native]::SetThreadExecutionState($RELEASE)
         # Closing the job object also ends anything job.ps1 left running in the background.
         if ($jobObj -ne [IntPtr]::Zero) { [void][LazyLink.Native]::CloseHandle($jobObj) }
@@ -178,11 +256,12 @@ Get-ChildItem $Jobs -Directory | ForEach-Object {
 }
 while ($true) {
     Set-Content $Beat (Get-Date -Format o)
-    if ((Get-FileHash $Self).Hash -ne $SelfHash) { Write-Log 'runner.ps1 changed; restarting'; exit 0 }
+    if ((Get-FileHash $Self).Hash -ne $SelfHash) { Stop-Warm 'the runner restarts'; Write-Log 'runner.ps1 changed; restarting'; exit 0 }
     Skip-Cancelled
     $next = Get-ChildItem $Jobs -Directory |
         Where-Object { (Test-Path (Join-Path $_.FullName 'ready')) -and -not (Test-Path (Join-Path $_.FullName 'status.json')) } |
         Sort-Object CreationTime | Select-Object -First 1
+    try { Watch-Warm } catch { Write-Log "warm check failed: $_"; try { Stop-Warm 'its check failed' } catch {} }
     if (-not $next) { Start-Sleep 2; continue }
     try { Invoke-Job $next.FullName }
     catch {

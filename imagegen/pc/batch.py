@@ -5,6 +5,11 @@ user/temp folders), queues every ask in asks.json
 for every model in want.json, saves <ask>__<model>.png and timings.json to $RENDER_OUT, then
 stops ComfyUI. The graphs follow ComfyUI's own templates; settings are data in models.json.
 
+Warm ComfyUI (Windows runner): when the job sent warm.json, the runner starts ComfyUI itself, or hands over the one
+the last job used, and keeps it up after this job (env LAZY_WARM = started | reused, LAZY_WARM_PID, LAZY_WARM_LOG).
+This script then never starts or stops ComfyUI; it leaves the last model loaded (SCRATCH/loaded.json says which), so
+a next job on the same model skips the load too. If the warm one dies before it answers, it starts its own as before.
+
 want.json can also be {"recipe": KEY}: each ask then fills a converted template (recipes/<template>.api.json,
 inputs named in models.json "recipes") and every file it saves (audio, 3D model, image) comes back as
 <ask>__<KEY>.<ext>. {"convert": [template, ...]} turns ComfyUI templates into those .api.json files.
@@ -23,6 +28,8 @@ PYTHON = BASE / M["comfy"]["venv"] / ("Scripts/python.exe" if WINDOWS else "bin/
 PORT = M["comfy"]["port"]
 URL = f"http://127.0.0.1:{PORT}"
 SCRATCH = BASE / "tmp" / "comfy"
+LOADED = SCRATCH / "loaded.json"   # warm ComfyUI only: which model the last job left loaded
+WARM = os.environ.get("LAZY_WARM") if os.environ.get("LAZY_WARM_URL") == URL else None
 
 
 def api(path, body=None, timeout=30):
@@ -269,42 +276,131 @@ def convert(names):
         sys.exit("batch: template conversion failed")
 
 
-def main():
-    for d in ("user", "temp", "out"):
-        (SCRATCH / d).mkdir(parents=True, exist_ok=True)
-    log = open(OUT / "comfy.log", "w")
-    t_start = time.time()
+def server_args():
+    return [a.replace("{port}", str(PORT)).replace("{scratch}", str(SCRATCH)) for a in M["comfy"]["server_args"]]
+
+
+def pid_alive(pid):
+    if not WINDOWS:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    import ctypes   # os.kill on Windows would end the process; ask for its exit code instead (259 = still running)
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+    k.CloseHandle(h)
+    return bool(ok) and code.value == 259
+
+
+def wait_up(alive, what):
+    """Wait for ComfyUI to answer; False if it exited first."""
+    for _ in range(480):
+        if not alive():
+            return False
+        try:
+            api("/system_stats", timeout=3)
+            return True
+        except Exception:
+            time.sleep(0.5)
+    sys.exit(f"batch: {what} ComfyUI did not come up in 4 min")
+
+
+def start_own(log):
     # a PC without an NVIDIA GPU (or a CPU-only torch) needs --cpu, or ComfyUI stops at import; a Mac's Apple GPU is MPS
     cuda = subprocess.run([str(PYTHON), "-c", "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)"]).returncode == 0
     mps = not cuda and subprocess.run([str(PYTHON), "-c", "import torch, sys; sys.exit(0 if torch.backends.mps.is_available() else 1)"]).returncode == 0
-    comfy = subprocess.Popen(
-        [str(PYTHON), "-u", "main.py", "--listen", "127.0.0.1", "--port", str(PORT),
-         "--disable-all-custom-nodes", "--disable-auto-launch", "--output-directory", str(SCRATCH / "out"),
-         "--temp-directory", str(SCRATCH / "temp"), "--user-directory", str(SCRATCH / "user")] + ([] if cuda or mps else ["--cpu"]),
-        cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+    comfy = subprocess.Popen([str(PYTHON)] + server_args() + ([] if cuda or mps else ["--cpu"]),
+                             cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
     print("ComfyUI on " + ("the GPU" if cuda else "the Apple GPU (MPS)" if mps else "the CPU (no CUDA torch: slow)"), flush=True)
+    if not wait_up(lambda: comfy.poll() is None, "our own"):
+        sys.exit(f"batch: ComfyUI exited early ({comfy.returncode}); see comfy.log")
+    return comfy
+
+
+def warm_logs():
+    out = Path(os.environ.get("LAZY_WARM_LOG", ""))
+    return [p for p in (out, Path(str(out) + ".err")) if out.name and p.exists()]
+
+
+def copy_warm_log(starts):
+    """This job's part of the warm server's log (stdout, then stderr) -> OUT/comfy.log."""
+    with open(OUT / "comfy.log", "a", encoding="utf-8", errors="replace") as w:
+        w.write(f"--- warm ComfyUI ({WARM}, pid {os.environ.get('LAZY_WARM_PID')}): this job's part of its log ---\n")
+        for p in warm_logs():
+            with open(p, "rb") as f:
+                f.seek(starts.get(str(p), 0))
+                w.write(f.read().decode("utf-8", "replace"))
+
+
+def loaded():
     try:
-        for _ in range(240):
-            if comfy.poll() is not None:
-                sys.exit(f"batch: ComfyUI exited early ({comfy.returncode}); see comfy.log")
-            try:
-                api("/system_stats", timeout=3)
-                break
-            except Exception:
-                time.sleep(1)
+        return json.loads(LOADED.read_text())["key"]
+    except Exception:
+        return None
+
+
+def set_loaded(key):
+    if WARM:
+        LOADED.write_text(json.dumps({"key": key}))
+
+
+def ready_for(key):
+    """Warm server: drop the last job's model if this job wants another one. True = the model is already loaded."""
+    if not WARM:
+        return False
+    if WARM == "reused" and loaded() == key:
+        return True
+    api("/free", {"unload_models": True, "free_memory": True})
+    set_loaded(None)
+    return False
+
+
+def main():
+    global WARM
+    for d in ("user", "temp", "out"):
+        (SCRATCH / d).mkdir(parents=True, exist_ok=True)
+    t_start = time.time()
+    comfy, starts = None, {}
+    if WARM:
+        starts = {str(p): (0 if WARM == "started" else p.stat().st_size) for p in warm_logs()}
+        pid = int(os.environ.get("LAZY_WARM_PID", "0"))
+        if wait_up(lambda: pid_alive(pid), f"the runner's warm ({WARM})"):
+            print(f"ComfyUI: the runner's warm server ({WARM}, pid {pid})", flush=True)
+            if WARM == "reused":
+                api("/history", {"clear": True})
         else:
-            sys.exit("batch: ComfyUI did not come up in 4 min")
+            print(f"ComfyUI: the runner's warm server (pid {pid}) exited; starting our own", flush=True)
+            copy_warm_log(starts)
+            WARM = None
+    log = None
+    if not WARM:
+        LOADED.unlink(missing_ok=True)
+        log = open(OUT / "comfy.log", "a")
+        comfy = start_own(log)
+    try:
         boot = time.time() - t_start
         print(f"ComfyUI up in {boot:.1f} s, VRAM in use {vram_used_mb()} MB", flush=True)
-        timings = {"comfy_boot_s": round(boot, 1), "runs": []}
+        timings = {"comfy_boot_s": round(boot, 1), "comfy": WARM or "own", "runs": []}
         if isinstance(WANT, dict) and "convert" in WANT:
             return convert(WANT["convert"])
         if isinstance(WANT, dict) and "recipe" in WANT:
-            run_recipe(WANT["recipe"], timings)
+            key = WANT["recipe"]
+            warm_model = ready_for("recipe:" + key)
+            run_recipe(key, timings)
+            if warm_model and timings["runs"]:
+                timings["runs"][0]["cold"] = False
+            set_loaded("recipe:" + key)
             json.dump(timings, open(OUT / "timings.json", "w"), indent=1)
             return
-        for key in WANT:
+        for n, key in enumerate(WANT):
             m = M["models"][key]
+            warm_model = ready_for(key) if n == 0 else False
             files = {k: resolve(k, m[k]) for k in ("unet", "clip", "vae")}
             if any(a.get("cutout") for a in ASKS):
                 files["cutout"] = resolve("cutout", M["cutout"]["model"])
@@ -314,19 +410,26 @@ def main():
                 for img in imgs:  # SaveImage names files <prefix>_00001_.png
                     tag = "-cutout" if img["filename"].startswith(prefix + "-cutout") else ""
                     shutil.move(str(SCRATCH / "out" / img.get("subfolder", "") / img["filename"]), OUT / f"{prefix}{tag}.png")
-                row = {"model": key, "ask": ask["name"], "seconds": round(secs, 2), "cold": i == 0,
+                row = {"model": key, "ask": ask["name"], "seconds": round(secs, 2), "cold": i == 0 and not warm_model,
                        "w": ask.get("w", 1024), "h": ask.get("h", 1024), "vram_mb": vram_used_mb()}
                 timings["runs"].append(row)
                 print(json.dumps(row), flush=True)
+            set_loaded(key)
+            if WARM and n == len(WANT) - 1:
+                break   # the warm server keeps the last model for the next job
             api("/free", {"unload_models": True, "free_memory": True})
+            set_loaded(None)
             time.sleep(2)
         json.dump(timings, open(OUT / "timings.json", "w"), indent=1)
     finally:
-        comfy.terminate()
-        try:
-            comfy.wait(20)
-        except subprocess.TimeoutExpired:
-            comfy.kill()
+        if comfy is not None:
+            comfy.terminate()
+            try:
+                comfy.wait(20)
+            except subprocess.TimeoutExpired:
+                comfy.kill()
+        if WARM:
+            copy_warm_log(starts)
 
 
 if __name__ == "__main__":

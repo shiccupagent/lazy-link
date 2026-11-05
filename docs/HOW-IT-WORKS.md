@@ -39,7 +39,12 @@ A scheduled task (the *runner*) runs as `lazylink` from boot, whether or not any
   everything it started (no orphan holding the GPU);
 - ends a job cancelled while it still waits its turn at once, without starting it (`pcjob list` shows
   `cancelling` for the second or two before that, and doesn't count it as a job ahead);
-- writes `status.json` (queued, running, done, failed, timeout, cancelled) and packs the results.
+- writes `status.json` (queued, running, done, failed, timeout, cancelled) and packs the results;
+- keeps ONE ComfyUI up between ComfyUI jobs (Windows): a job that sends `warm.json` gets the one the
+  last job left running, so it skips ComfyUI's start and, on the same model, the model load. The runner
+  owns it in its own job object; it stops before any other kind of job (Blender, voice, setup: they get
+  the whole GPU), when a job fails, after 10 minutes with no job, after 4 hours, and with the runner.
+  `LAZY_WARM=0` on the Mac turns it off. Tested by `pc/test-runner-warm.ps1` on the PC.
 The Mac checks the status every 10 s and fetches the results when it's done.
 
 ## 4. Wake-on-LAN and sleep
@@ -55,8 +60,9 @@ to sleep **only if this job woke it and nobody is signed in and using it**.
 ## 5. ComfyUI, headless
 ComfyUI is the open-source engine behind most local image tools. We install our own pinned copy in
 `C:\lazylink\tools` (any ComfyUI you already have is left alone) and never open its web page:
-each job starts it on 127.0.0.1 (the PC only), sends work through its HTTP API, collects the files
-and stops it. Starting takes 13-55 s, which is why you batch.
+it runs on 127.0.0.1 (the PC only); jobs send work through its HTTP API and collect the files.
+On Windows the runner keeps it up between jobs (section 3); elsewhere each job starts and stops its own.
+Starting takes 13-55 s and a model's first load a few more, which is why you batch.
 Recipes for sound and 3D are ComfyUI's own templates, converted to the API format by ComfyUI's own
 frontend (`imagegen.py convert`), so they stay right as ComfyUI changes.
 

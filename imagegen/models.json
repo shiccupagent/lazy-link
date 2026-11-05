@@ -7,7 +7,12 @@
   "venv": "tools/comfy-venv",
   "python": "3.12",
   "torch_index": "https://download.pytorch.org/whl/cu130",
-  "port": 8190
+  "port": 8190,
+  "_warm_doc": "between jobs the PC's runner keeps ONE ComfyUI up (Windows): the next image/sound/3D/video job reuses it and skips the start (~20 s) and, with the same model, the model load (~5 s). It stops before any job that does not ask for it (Blender, voice, setup, ...), after warm_idle_s with no job, after warm_max_age_s, or when a job fails. LAZY_WARM=0 on the Mac turns it off. server_args: {scratch} = RENDER_ROOT/tmp/comfy, {port} = port",
+  "server_args": ["-u", "main.py", "--listen", "127.0.0.1", "--port", "{port}", "--disable-all-custom-nodes", "--disable-auto-launch",
+                  "--output-directory", "{scratch}/out", "--temp-directory", "{scratch}/temp", "--user-directory", "{scratch}/user"],
+  "warm_idle_s": 600,
+  "warm_max_age_s": 14400
  },
  "uv": {
   "_doc": "uv (Astral, MIT/Apache-2.0) installs Python without admin rights; pinned release, sha256 from its GitHub release page",

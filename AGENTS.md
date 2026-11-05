@@ -57,7 +57,9 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 ## Rules
 - **Never sleep, restart or shut down the PC while someone is using it.** `pcjob sleep` checks;
   never work around it. A job that woke the PC puts it back to sleep by itself.
-- Batch: one job with many asks, not many jobs. Starting ComfyUI or a model costs 15-55 s per job.
+- Batch: one job with many asks, not many jobs. On Windows the runner keeps ComfyUI up between jobs (`warm.json`,
+  pc/runner.ps1), so a job right after another skips the ~20 s start, and on the same model the ~5 s load too;
+  a first job, or one after Blender/voice/10 idle minutes, still pays 15-55 s. Test: `pc/test-runner-warm.ps1` on the PC.
 - Long jobs: run them in the background and wait for them to finish; don't poll in a tight loop.
 - Look at every image you make before you use it (models drift toward famous characters and logos).
   Listen to, or at least measure, sounds before you ship them (new sounds often come out harsh): `imagegen/audio_check.py` measures them.
