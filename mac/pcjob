@@ -11,6 +11,8 @@ the Mac sleeping never kills a job.
 
   pcjob pair PC_ADDRESS [--os windows|linux|mac]   first time: check the PC's fingerprint, write ~/.ssh/config + config.json
   pcjob run DIR [--name N] [--timeout S] [--wait] [--fetch DEST] [--cheap]   send a job (wakes the PC)
+                                 (mac/sent/<id>.json notes what it makes: the folder's about.json
+                                 {"what", "for"}, its asks.json prompts, $PCJOB_FOR; for dashboards)
   pcjob cheap                    the cheap-electricity hours (live prices if cheap_feed is set), and whether they're on now
   pcjob status ID | list | log ID | wait ID [--max S] [--queue-max S] | fetch ID DEST | cancel ID | rm ID
   pcjob put FILE                 copy a big input onto the PC once (prints media:<name>)
@@ -550,6 +552,49 @@ def wait_for_cheap(force=False):
         time.sleep(30)
 
 
+SENT = REPO / "mac" / "sent"   # local notes of what each sent job makes (gitignored); a dashboard can show them
+
+
+def note_sent(job_id, src, a):
+    """mac/sent/<id>.json: what a job makes and who it is for, read from the job folder as it is sent, so a
+    dashboard can say more than "imagegen". The folder's about.json ({"what": ..., "for": ...}) if the sender
+    wrote one; the prompts in its asks.json (imagegen's batch: {"name", "prompt"} or {"name", "params": {"prompt"}});
+    $PCJOB_FOR (who it is for); the sender's folder and the fetch folder. Kept 3 days. Never stops a job."""
+    try:
+        rec = {"id": job_id, "sent": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "cwd": os.getcwd(),
+               "fetch": str(Path(a.fetch).expanduser().resolve()) if getattr(a, "fetch", None) else None,
+               "for": os.environ.get("PCJOB_FOR") or None, "what": None}
+        try:
+            about = json.loads((src / "about.json").read_text(encoding="utf-8-sig"))
+            if isinstance(about, dict):
+                rec["what"] = str(about.get("what") or "")[:300] or None
+                rec["for"] = rec["for"] or (str(about["for"])[:120] if about.get("for") else None)
+        except (OSError, ValueError):
+            pass
+        try:
+            asks = json.loads((src / "asks.json").read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            asks = None
+        if isinstance(asks, list):
+            items = []
+            for x in asks:
+                if isinstance(x, dict):
+                    pr = x.get("params") if isinstance(x.get("params"), dict) else {}
+                    p = x.get("prompt") or pr.get("prompt") or pr.get("text")
+                    items.append({"name": str(x.get("name") or "")[:80], "prompt": str(p)[:600] if p else None})
+            rec["count"], rec["items"] = len(items), items[:40]
+        SENT.mkdir(exist_ok=True)
+        tmp = SENT / f"{job_id}.json.new"
+        tmp.write_text(json.dumps(rec, indent=1))
+        os.replace(tmp, SENT / f"{job_id}.json")
+        old = time.time() - 3 * 86400
+        for f in SENT.glob("*.json"):
+            if f.stat().st_mtime < old:
+                f.unlink(missing_ok=True)
+    except Exception as e:   # a note is a nicety: report it and carry on with the job
+        print(f"pcjob: could not note what {job_id} makes ({e})", file=sys.stderr)
+
+
 def cmd_run(a):
     src = Path(a.dir).resolve()
     script = "job.sh" if POSIX else "job.ps1"
@@ -580,6 +625,7 @@ def cmd_run(a):
         print(f"sending {job_id} ({size / 1e6:.1f} MB)")
         scp(str(tar), f"{HOST}:{ROOT}/jobs/{job_id}/in.tar")
     on_pc(op_mark_ready, job_id, a.timeout)
+    note_sent(job_id, src, a)
     print(job_id)
     if a.wait or a.fetch:
         st = cmd_wait(argparse.Namespace(id=job_id, max=a.timeout + 300, queue_max=getattr(a, "queue_max", QUEUE_MAX)))
