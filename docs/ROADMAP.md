@@ -29,7 +29,10 @@ Small fixes first:
   only start it) reads `wake-at.txt` and sets a self-deleting wake timer, so a hibernated PC (S4, where Wake-on-LAN
   is not proven) wakes itself. Fold it into pcjob (`pcjob sleep --hibernate --until HH:MM`, or `pcjob quiet` setting
   the alarm), ship its setup script beside pc/setup-pc.ps1, and note in TROUBLESHOOTING that WoL from S4 is unproven.
-  First prove one real alarm wake from S4.
+  First prove one real alarm wake. 2026-11-06: the 09:55 alarm did NOT wake the Kiln from S4 (the timer was registered,
+  `powercfg /lastwake` count 0, the owner powered it on by hand); why needs an admin read of the System log
+  (Power-Troubleshooter / Kernel-Power). Next test, daytime, PC idle and queue empty: S3 sleep + a 5-min alarm. If S3
+  wakes, the gap is S4 only: overnight then uses sleep + Wake-on-LAN, not hibernate.
 - Mac big computer: if Remote Login was already on, keep the accounts that already use SSH working (add `lazylink` to the allowed group instead of `AllowUsers lazylink`).
 - Windows `local/setup-local-ai.ps1`: pin PyAV below 17 like Linux (PyAV 19 breaks faster-whisper 1.2.1), then test on the PC.
 
