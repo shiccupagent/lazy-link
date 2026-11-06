@@ -144,11 +144,44 @@ def with_pictures(asks_file):
     return asks, [(src, dest) for dest, src in sent.items()]
 
 
+def ask_errors(key, r, asks):
+    """Every way an ask's params do not fit the recipe, before anything goes to the PC. A param's kind (number or
+    text) comes from the recipe's own template input; models.json "limits" adds ranges. true/false is never a recipe
+    value: SCZ sent mesh "texture": true (meant "textured"), Python read it as 1, and 86 props came back with a 1x1
+    black colour map (2026-11-04)."""
+    tmpl = json.loads((HERE / "recipes" / f"{r['template']}.api.json").read_text(encoding="utf-8"))
+    errs = []
+    for x in asks:
+        for name, v in x.get("params", {}).items():
+            if name == "seconds" and "fps" in r:
+                continue   # video: becomes "length" below
+            where = r["params"].get(name) or (name.split(".", 1) if "." in name else None)
+            if not where:
+                errs.append(f"{x.get('name')}: {key} has no param {name!r} (it takes {', '.join(r['params'])})")
+                continue
+            was = tmpl.get(where[0], {}).get("inputs", {}).get(where[1])
+            num = isinstance(v, (int, float)) and not isinstance(v, bool)
+            if isinstance(v, bool):
+                errs.append(f"{x.get('name')}: {name} is {str(v).lower()}, but it takes a "
+                            f"{'number' if isinstance(was, (int, float)) else 'value'}")
+            elif isinstance(was, (int, float)) and not isinstance(was, bool) and not num:
+                errs.append(f"{x.get('name')}: {name} must be a number, not {v!r}")
+            elif isinstance(was, str) and not isinstance(v, str):
+                errs.append(f"{x.get('name')}: {name} must be text, not {v!r}")
+            lo, hi = r.get("limits", {}).get(name, (None, None))
+            if num and lo is not None and not lo <= v <= hi:
+                errs.append(f"{x.get('name')}: {name} {v} is outside {lo}..{hi}")
+    return errs
+
+
 def make(key, asks, out, timeout):
     r = MODELS["recipes"][key]
     out = Path(out).expanduser().resolve()
     base = Path(asks).parent
     asks = json.loads(Path(asks).read_text(encoding="utf-8-sig"))
+    errs = ask_errors(key, r, asks)
+    if errs:
+        sys.exit("imagegen make: nothing sent, these asks do not fit the recipe:\n  " + "\n  ".join(errs))
     for x in asks:   # video: "seconds" -> the frame count the model takes (4n + 1)
         p = x.get("params", {})
         if "fps" in r and "seconds" in p:

@@ -345,6 +345,11 @@
     "texture": 2048,
     "322.filename_prefix": "3d/mesh"
    },
+   "limits": {
+    "faces": [1000, 700000],
+    "texture": [256, 4096]
+   },
+   "_limits_doc": "imagegen make refuses asks outside these. texture = the colour/normal map size in px, never on/off (true read as 1 = a 1x1 black colour map, SCZ 2026-11-04); faces = the game mesh after decimation, 4000-5000 for phone props (the normal map is baked from the dense mesh, so detail stays)",
    "image": [
     "122",
     "image"

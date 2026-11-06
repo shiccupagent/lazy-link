@@ -12,6 +12,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./imagegen/imagegen.py one "prompt" --out DIR [--model krea2|klein|zimage] [--size WxH] [--cutout]`
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
 - `./imagegen/imagegen.py make audio|sfx|mesh|maps ASKS.json --out DIR`: sounds/music, picture to 3D, or picture to normal + depth maps (MoGe-2).
+  mesh params: `faces` (triangles after decimation; 4000-5000 for phone props, the normal map keeps the detail),
+  `texture` (map size in px, 256-4096; a number, never true/false), `seed`. `make` refuses asks that don't fit (models.json "limits").
 - `./imagegen/imagegen.py make video ASKS.json --out DIR`: short clips from a prompt, or from a picture as the first frame (Wan 2.2
   TI2V 5B, Apache-2.0, 24 fps). Ask: `{"name", "params": {"prompt", "seconds", "width", "height", "seed"}, "image": "first.png",
   "loop": 0.5, "cutout": true, "frames": true}`; `loop` crossfades the end into the start so it repeats; `cutout` adds a
