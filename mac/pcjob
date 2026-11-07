@@ -66,6 +66,10 @@ q = shlex.quote
 SAFE_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
 QUIET = Path(os.environ.get("LAZY_LINK_QUIET", REPO / ".quiet-until"))   # pcjob quiet: one local time, no ssh before it
 QUEUE_MAX = 3 * 3600   # seconds a job may wait in the PC's queue (one job at a time) before wait gives up
+# seconds of unanswered status checks a wait rides out before it gives up: one ssh that timed out used to end the
+# wait, and the job left on the PC was cancelled (SCZ 2026-11-06: an 80-min mesh job lost 5 times in a row)
+WAIT_GRACE = int(os.environ.get("LAZY_LINK_WAIT_GRACE", 600))
+NO_ANSWER = "pcjob: PC command failed (255)"
 
 
 def set_os(os_name):
@@ -119,9 +123,12 @@ def ps(script, check=True, timeout=120):
     """Run a PowerShell snippet on the PC; -EncodedCommand sidesteps all quoting."""
     need_config()
     enc = base64.b64encode(script.encode("utf-16-le")).decode()
-    r = subprocess.run(["ssh", "-o", "BatchMode=yes", HOST,
-                        f"powershell -NoProfile -NonInteractive -EncodedCommand {enc}"],
-                       capture_output=True, text=True, timeout=timeout)
+    try:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", HOST,
+                            f"powershell -NoProfile -NonInteractive -EncodedCommand {enc}"],
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"{NO_ANSWER}: ssh gave no answer in {timeout} s (Operation timed out)")
     if check and r.returncode != 0:
         sys.exit(f"pcjob: PC command failed ({r.returncode}): {r.stderr.strip() or r.stdout.strip()}")
     return r.stdout.strip()
@@ -130,7 +137,11 @@ def ps(script, check=True, timeout=120):
 def sh(script, check=True, timeout=120):
     """Run a POSIX sh snippet on a Linux PC over ssh (the ssh user's login shell reads it)."""
     need_config()
-    r = subprocess.run(["ssh", "-o", "BatchMode=yes", HOST, script], capture_output=True, text=True, timeout=timeout)
+    try:
+        r = subprocess.run(["ssh", "-o", "BatchMode=yes", HOST, script], capture_output=True, text=True,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired:
+        sys.exit(f"{NO_ANSWER}: ssh gave no answer in {timeout} s (Operation timed out)")
     if check and r.returncode != 0:
         sys.exit(f"pcjob: PC command failed ({r.returncode}): {r.stderr.strip() or r.stdout.strip()}")
     return r.stdout.strip()
@@ -649,6 +660,28 @@ def queue_ahead(job_id):
     return ahead
 
 
+def patient(fn, *args):
+    """fn(*args), riding out a PC that does not answer for up to WAIT_GRACE s (ssh exit 255 or no answer). Any other
+    failure (quiet hold, bad id, the PC's own error) ends at once. After the grace the last failure ends the wait,
+    with the same message as before, so callers that read it (refresh-kit's PC_LOST) still know the PC went away."""
+    first = None
+    while True:
+        try:
+            return fn(*args)
+        except SystemExit as err:
+            if not str(err.code).startswith(NO_ANSWER):
+                raise
+            now = time.time()
+            if first is None:
+                first = now
+                grace = f"{WAIT_GRACE // 60} min" if WAIT_GRACE >= 60 else f"{WAIT_GRACE} s"
+                print(f"pcjob: the PC did not answer ({str(err.code)[len(NO_ANSWER) + 2:][:120]}); "
+                      f"trying again for up to {grace}", file=sys.stderr, flush=True)
+            if now - first >= WAIT_GRACE:
+                raise
+            time.sleep(15)
+
+
 def cmd_wait(a):
     """Waits for a job. --max limits the time it runs; the time it waits in the queue behind other jobs counts
     against --queue-max instead (default QUEUE_MAX), so a job stuck behind a long render is not given up on while
@@ -659,10 +692,10 @@ def cmd_wait(a):
     deadline = started + queue_max
     last = None
     while True:
-        st = status(a.id)
+        st = patient(status, a.id)
         label = st["state"]
         if label == "queued":
-            label = f"queued, {queue_ahead(a.id)} job(s) ahead on the PC"
+            label = f"queued, {patient(queue_ahead, a.id)} job(s) ahead on the PC"
         if label != last:
             print(f"{a.id}: {label}", flush=True)
             if st["state"] == "running" and (last is None or last.startswith("queued")):
