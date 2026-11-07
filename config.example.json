@@ -9,6 +9,8 @@
  "pc_os": "windows",
  "_pc_os_doc": "windows (default: the PC runs pc/ scripts), linux (a PC set up with linux/setup-linux.sh; pc_root is then /srv/lazylink and the ssh user lazylink; `pcjob pair --os linux` sets both) or mac (an Apple Silicon Mac set up with macpc/setup-mac.sh; pc_root is then ~lazylink/lazylink and the ssh user lazylink; `pcjob pair --os mac` sets both). See docs/MAC-PC.md for what is tested.",
  "pc_root": "C:/lazylink",
+ "rest": "sleep",
+ "_rest_doc": "how pcjob puts the PC down (pcjob sleep, and after a job it woke the PC for): sleep (default) or hibernate (Windows: fully off, no sleep light; test that `pcjob wake` wakes it from hibernate before you pick it). pcjob never checks the PC afterwards: a check can wake it.",
  "extra_model_folders": {
   "_doc": "optional: model folders you already have on the PC (ComfyUI layout), read-only, so nothing downloads twice",
   "diffusion_models": [

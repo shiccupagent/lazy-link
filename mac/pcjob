@@ -810,13 +810,26 @@ def release(woke):
     if in_use():
         print("leaving the PC on: someone is signed in and using it")
         return
-    cmd_sleep(argparse.Namespace(hibernate=False, nobody_there=False))   # sleep, not hibernate: see docs/TROUBLESHOOTING.md
+    cmd_sleep(argparse.Namespace(hibernate=False, sleep=False, nobody_there=False))   # config.json "rest" picks how
+
+
+def rest_hibernates(a):
+    """True to hibernate, False to sleep: --hibernate / --sleep, else config.json "rest" ("sleep", the default, or
+    "hibernate": fully off, no sleep light; a Windows option, so a Linux or Mac PC sleeps whatever "rest" says)."""
+    rest = CFG.get("rest", "sleep")
+    if rest not in ("sleep", "hibernate"):
+        sys.exit(f'pcjob: config.json "rest" is "sleep" or "hibernate", not {rest!r}')
+    if a and getattr(a, "hibernate", False):
+        if OS_NAME != "windows":
+            sys.exit("pcjob: hibernate is a Windows option; a Linux or Mac PC sleeps with: pcjob sleep")
+        return True
+    if a and getattr(a, "sleep", False):
+        return False
+    return rest == "hibernate" and OS_NAME == "windows"
 
 
 def cmd_sleep(a):
-    hib = bool(a and a.hibernate)
-    if hib and OS_NAME != "windows":
-        sys.exit("pcjob: hibernate is a Windows option; a Linux or Mac PC sleeps with: pcjob sleep")
+    hib = rest_hibernates(a)
     if in_use() and not (a and a.nobody_there):
         sys.exit("pcjob: someone is signed in and using the PC (unlocked); not putting it to sleep")
     busy = on_pc(op_busy_jobs)
@@ -938,7 +951,10 @@ def main():
         sub.add_parser(n)
     pr = sub.add_parser("pair"); pr.add_argument("address"); pr.add_argument("--yes", action="store_true", help="skip the fingerprint question")
     pr.add_argument("--os", choices=OS_CHOICES, help="what the PC runs (default: keep config.json's pc_os, else windows)")
-    sl = sub.add_parser("sleep"); sl.add_argument("--hibernate", action="store_true", help="hibernate: fully off, no blinking sleep light (Windows)")
+    sl = sub.add_parser("sleep", help='sleep or hibernate the PC, as config.json "rest" says (default sleep)')
+    how = sl.add_mutually_exclusive_group()
+    how.add_argument("--hibernate", action="store_true", help="hibernate: fully off, no blinking sleep light (Windows)")
+    how.add_argument("--sleep", action="store_true", help='sleep, whatever config.json "rest" says')
     sl.add_argument("--nobody-there", action="store_true", help="only when you know nobody is at the PC (session left unlocked); hibernate keeps their windows")
     a = p.parse_args()
     if a.cmd == "ping":

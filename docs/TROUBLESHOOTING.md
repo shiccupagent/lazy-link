@@ -40,8 +40,10 @@ Check `config.json` has the PC's wired network card address (`pcjob pair` fills 
 
 **"The PC went quiet" doesn't mean it's off.** We once thought a remote hibernate had worked
 because SSH stopped answering. The PC was still on, with the network just gone quiet. Remote
-hibernate is unreliable (a check that arrives while it writes memory to disk cancels it), so
-`pcjob` uses sleep.
+hibernate looked unreliable: a check that arrives while it writes memory to disk cancels it, and
+a check after it (or after sleep) can wake the PC again when its network card wakes on any packet.
+So `pcjob` never checks the PC after putting it down. config.json `"rest"` picks sleep (default) or
+hibernate; test that `pcjob wake` brings the PC back from hibernate before you pick it.
 
 **Downloads.** `fetch` resumes broken downloads and checks size + sha256 before using a file.
 Some models on Hugging Face are *gated* (you must sign in and accept terms); those aren't in
