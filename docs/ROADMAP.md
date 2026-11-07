@@ -33,6 +33,11 @@ Small fixes first:
   `powercfg /lastwake` count 0, the owner powered it on by hand); why needs an admin read of the System log
   (Power-Troubleshooter / Kernel-Power). Next test, daytime, PC idle and queue empty: S3 sleep + a 5-min alarm. If S3
   wakes, the gap is S4 only: overnight then uses sleep + Wake-on-LAN, not hibernate.
+  2026-11-06 23:55: a Task Scheduler wake timer DID wake the Kiln from S4, but the wrong one: `-DeleteExpiredTaskAfter
+  12h` on a WakeToRun task wakes the PC to delete it (EndBoundary 11:55 + 12 h; lastwake "Presume Wake Timer ...
+  \LazyLink\Wake"). Fixed in the setup script (2026-11-07, the owner's copy in !WORKING until it ships here): no
+  DeleteExpiredTaskAfter, and stay-awake.ps1 disables the Wake task as it fires; installs on an admin re-run. When it
+  ships: never put DeleteExpiredTaskAfter on a WakeToRun task.
 - Mac big computer: if Remote Login was already on, keep the accounts that already use SSH working (add `lazylink` to the allowed group instead of `AllowUsers lazylink`).
 - Windows `local/setup-local-ai.ps1`: pin PyAV below 17 like Linux (PyAV 19 breaks faster-whisper 1.2.1), then test on the PC.
 
