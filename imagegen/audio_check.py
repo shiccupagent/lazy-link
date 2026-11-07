@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """audio_check.py - the "never harsh" gate for generated sounds, plus a soundboard to listen to.
 
-  audio_check.py DIR [--frequent a,b,...] [--fix OUTDIR [--loop a,b,...] [--music a,b,...]]
+  audio_check.py DIR [--frequent a,b,...] [--fix OUTDIR [--loop a,b,...] [--music a,b,...] [--swell a,b,...]]
 
 For every .mp3/.wav/.flac/.ogg in DIR: length, loudness (LUFS; a clip under 0.4 s is measured tiled), true peak, spectral centroid and the share of
 energy above 4 kHz. Gate: sounds that fire often need centroid <= 2.5 kHz and a >4 kHz share <= 15%; the rest need
 centroid <= 4 kHz and <= 25%. --frequent names the sounds that fire often (the part of the file name before the
 first "__"). Writes DIR/soundboard.mp3 (every sound in a row, 0.7 s apart) and DIR/check.json.
 
---fix also writes game-ready copies to OUTDIR (.mp3): silence trimmed, short fades, shelf cut above 6 kHz and a
+--fix also writes game-ready copies to OUTDIR (.mp3): silence trimmed, a one-shot started on its hit (below), short fades, shelf cut above 6 kHz and a
 3-4 kHz dip, loudness -18 LUFS with a -1 dBFS ceiling; the fixed copies are checked again.
 A take that still fails gets the highest low-pass cutoff that passes; OUTDIR/fix.json lists each copy's
 cutoff (lowpass_hz, null = none) so a picker can prefer the least-cut take.
+One-shots (not --loop, not --music) start 50 ms before their first 5 ms window at a quarter of their loudest window
+(150 ms for the --swell names, e.g. a whoosh); a cut under 20 ms is skipped. A quiet lead-in above -40 dB used to
+survive and the hit landed 0.4-0.8 s late in the game (ChipForge/DressForge 2026-11-06). A quarter, not a half,
+keeps the first knock of a double tap.
 --loop names sounds that repeat in the game (engine hum, ambience, a music bed): only the silence padded onto the
 ends is cut (10 ms windows more than 40 dB under the peak; looped, it is a dropout every time round), no fades; the tail is
 crossfaded into the head (equal power, 0.25 s, 1 s for music) and the copy starts on an upward zero crossing, so it
@@ -144,7 +148,24 @@ def soundboard(files, out):
     subprocess.run(["ffmpeg", "-v", "error", "-y", *args, "-filter_complex", flt, "-map", "[out]", "-q:a", "2", str(out)], check=True)
 
 
-def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset()):
+CLEAR, LEAD, SWELL_LEAD, MIN_CUT = 0.25, 0.05, 0.15, 0.02   # first_event: see the top
+
+
+def first_event(env, lead=LEAD):
+    """Sample a one-shot should start at: `lead` s before its first 5 ms window at CLEAR of its loudest window;
+    0 when that is under MIN_CUT from the start or the sound is silent. env = |x| (mono) or its per-sample max."""
+    w = int(0.005 * SR)
+    n = len(env) // w
+    if n == 0:
+        return 0
+    rms = np.sqrt((env[:n * w].astype(np.float64).reshape(n, w) ** 2).mean(axis=1))
+    if rms.max() <= 0:
+        return 0
+    start = max(0, int(np.argmax(rms >= CLEAR * rms.max())) * w - int(lead * SR))
+    return start if start >= int(MIN_CUT * SR) else 0
+
+
+def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(), swells=frozenset()):
     """Game-ready copy: trim silence (relative to the sound's own peak), 5 ms fade-in / 30 ms fade-out,
     shelf cut above 6 kHz and a dip at 3-4 kHz (the audio rules). If it still fails the never-harsh gate, a
     low-pass is lowered (bisected) to the highest cutoff that passes. Then gain to -18 LUFS (clips under 0.4 s
@@ -174,7 +195,13 @@ def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(
             x = np.concatenate([x, x, x])
         else:
             on = np.where(env > env.max() * 10 ** (-40 / 20))[0]
-            x = x[max(0, on[0] - int(0.002 * SR)): on[-1] + int(0.03 * SR)].copy()
+            a = max(0, on[0] - int(0.002 * SR))
+            if not is_music:   # a one-shot starts on its hit, not on a quiet lead-in above -40 dB
+                hit = first_event(env, SWELL_LEAD if name in swells else LEAD)
+                if hit > a:
+                    print(f"{p.name}: starts {hit / SR:.2f} s in, on its hit")
+                    a = hit
+            x = x[a: on[-1] + int(0.03 * SR)].copy()
             n_in, n_out = int(0.005 * SR), min(int(0.03 * SR), len(x) // 4)
             fade = lambda r: r.reshape((-1,) + (1,) * (x.ndim - 1))
             x[:n_in] *= fade(np.linspace(0, 1, n_in))
@@ -241,6 +268,7 @@ def main():
     p.add_argument("--fix", metavar="OUTDIR", help="also write game-ready copies to OUTDIR and check them again")
     p.add_argument("--loop", default="", help="with --fix: comma-separated sound names that repeat (seamless copies)")
     p.add_argument("--music", default="", help="with --fix: comma-separated names of stereo music tracks (-16 LUFS)")
+    p.add_argument("--swell", default="", help="with --fix: comma-separated one-shots that rise in (keep 150 ms before the hit)")
     a = p.parse_args()
     if np is None:
         sys.exit("audio_check needs numpy on this computer: pip3 install numpy")
@@ -255,7 +283,8 @@ def main():
     if a.fix:
         fixed_dir = Path(a.fix)
         print("--- game-ready copies")
-        fixed = fix(files, fixed_dir, frequent, {x for x in a.loop.split(",") if x}, {x for x in a.music.split(",") if x})
+        fixed = fix(files, fixed_dir, frequent, {x for x in a.loop.split(",") if x}, {x for x in a.music.split(",") if x},
+                    {x for x in a.swell.split(",") if x})
         out["fixed"] = check(fixed, frequent)
         out["skipped"] = sorted({f.stem for f in files} - {f.stem for f in fixed})  # silent, or too short to loop
         if fixed:
