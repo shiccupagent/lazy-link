@@ -824,12 +824,14 @@ def cmd_sleep(a):
         sys.exit(f"pcjob: {busy} job(s) queued or running; not putting the PC to sleep")
     try:  # the PC drops the link as it sleeps, so this call never returns cleanly
         on_pc(op_sleep, hib, check=False, timeout=20)
-    except subprocess.TimeoutExpired:
-        pass
-    # hibernate writes memory to disk first; a check that arrives meanwhile can cancel it
-    time.sleep(60 if hib else 5)
-    state = "hibernating (fully off, no sleep light)" if hib else "asleep"
-    print(f"PC is {state}" if not reachable() else "pcjob: PC still answering; it did not sleep")
+    except SystemExit as err:   # a hung ssh (see ps/sh) is the PC going down, not a failure
+        if not str(err.code).startswith(NO_ANSWER):
+            raise
+    # No check afterwards: any packet sent to the PC (an ssh to see if it answers) can wake it again when its network
+    # card wakes on more than the magic packet, and a check during hibernate can cancel it (macsuperchat 2026-11-06:
+    # the 5 s check, or the next one, woke the PC). `pcjob quiet HH:MM` keeps every other command off it too.
+    state = "hibernate" if hib else "sleep"
+    print(f"sent {state} to the PC; not checked, since a check can wake it (`pcjob quiet HH:MM` keeps others off it)")
 
 
 def cmd_push_runner(a):

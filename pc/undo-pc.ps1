@@ -73,7 +73,7 @@ foreach ($a in $Accounts) {
     foreach ($f in $Folders) { if (Test-Path $f) { icacls $f /remove "*$sid" | Out-Null } }
 }
 Remove-Item $stateFile -ErrorAction SilentlyContinue
-Write-Host 'Wake on Magic Packet is left on (harmless); turn it off in Device Manager if you want.'
+Write-Host 'Wake on Magic Packet is left on, and wake on pattern match off (harmless); change them in Device Manager if you want.'
 if ($RemoveWorkFolder) {
     foreach ($f in $Folders) { if (Test-Path $f) { Remove-Item $f -Recurse -Force; Write-Host "$f removed" } }
 }

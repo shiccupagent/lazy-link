@@ -49,6 +49,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap` (`cancel` on a queued job ends it
   within seconds, without starting it). `run` and `wait` ride out a PC that stops answering for up to 10 min
   (`LAZY_LINK_WAIT_GRACE` s) before giving up; the job keeps running on the PC either way.
+  `sleep` sends the sleep and does not check: an ssh or ping to a sleeping PC can wake it (Setup-PC turns the
+  card's pattern wake off, so only the magic packet wakes it); `pcjob quiet` keeps every other check off it.
 - `./mac/pcshare setup | keychain | check | mount [DIR]`: a folder on the Windows PC (D:\MacShare) that the Mac opens over
   SMB; `setup` puts a one-click admin shortcut on the PC's desktop for the user, `keychain` moves the share's random
   password into the Mac's keychain (never print it). What it changes and -Undo: pc/setup-share.ps1.

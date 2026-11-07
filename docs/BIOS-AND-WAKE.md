@@ -75,9 +75,11 @@ Change only these settings. Leave overclocking and voltage options alone.
 1. Right-click the Start button > **Device Manager** > *Network adapters*.
 2. Double-click your wired adapter (Realtek, Intel or similar). Do not use the Wi-Fi adapter.
 3. On the **Power Management** tab, tick **Allow this device to wake the computer**
-   and **Only allow a magic packet to wake the computer**.
+   and **Only allow a magic packet to wake the computer**. Without that tick, any packet sent to the
+   sleeping PC (even a check that it is asleep) can wake it again. Setup-PC sets this for you.
 4. On the **Advanced** tab, if you see **Wake on Magic Packet**, set it to **Enabled**.
-   Intel cards may call it *PME*; set that to Enabled too.
+   Intel cards may call it *PME*; set that to Enabled too. If you see **Wake on Pattern Match**, set it
+   to **Disabled**.
 5. Click OK.
 
 **Wi-Fi:** Most Wi-Fi cards can't wake a sleeping PC. Use the cable. If you must use Wi-Fi,

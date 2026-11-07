@@ -13,7 +13,9 @@ What it changes (undo-pc.ps1 reverses all of it):
   5b. Locks your other drives (D:, E:, ...) and the folders straight under C:\ against "lazylink"
      (a DENY for that one account; nobody else's access changes). Your extra model folders stay open.
   6. The job runner: a scheduled task that runs jobs as "lazylink", even when nobody is signed in.
-  7. Turns on Wake on Magic Packet on the wired network adapter, if it has the setting.
+  7. Turns on Wake on Magic Packet on the wired network adapter, if it has the setting, and turns off its
+     wake on pattern match, so only the Mac's magic packet wakes the PC, not any packet sent to it
+     (an ssh check right after `pcjob sleep` woke it again). -KeepPatternWake leaves pattern wake as it is.
 Then it shows the address, the network card's MAC address and the SSH fingerprint your Mac
 needs, and saves them to <work folder>\pc-info.json (the Mac reads it when it pairs).
 
@@ -25,6 +27,7 @@ finish, then run Setup-PC again. After the upgrade, pair again from the Mac.
   Setup-PC.cmd                  do it (asks for the Mac's key if mac-key.pub is not beside it)
   Setup-PC.cmd -DryRun          only say what it would do
   Setup-PC.cmd -NoDriveLock     skip step 5b
+  Setup-PC.cmd -KeepPatternWake   step 7 leaves wake on pattern match on
   Setup-PC.cmd -OpenFolder D:\Art,E:\Sounds   also keep these open to jobs
 #>
 param(
@@ -32,7 +35,8 @@ param(
     [string]$WorkRoot = 'C:\lazylink',
     [string]$MacKeyFile = (Join-Path $PSScriptRoot 'mac-key.pub'),
     [string[]]$OpenFolder = @(),   # extra folders the job account may keep reaching (besides your extra model folders)
-    [switch]$NoDriveLock
+    [switch]$NoDriveLock,
+    [switch]$KeepPatternWake      # step 7: leave the card's wake on pattern match alone
 )
 $ErrorActionPreference = 'Stop'
 
@@ -345,6 +349,14 @@ if ($nic) {
     Step "Wake on Magic Packet on '$($nic.Name)'" {
         try { Set-NetAdapterPowerManagement -Name $nic.Name -WakeOnMagicPacket Enabled -ErrorAction Stop } catch { Note "  (power setting not available: $($_.Exception.Message))" }
         try { Set-NetAdapterAdvancedProperty -Name $nic.Name -DisplayName 'Wake on Magic Packet' -DisplayValue 'Enabled' -ErrorAction Stop } catch { Note '  (no Wake on Magic Packet driver setting)' }
+    }
+    # Device Manager's "Only allow a magic packet to wake the computer". pcjob wakes the PC with the magic packet,
+    # so pattern wake only adds wake-ups nobody asked for (any ssh or ping sent to a sleeping PC).
+    if (-not $KeepPatternWake) {
+        Step "only the magic packet wakes the PC through '$($nic.Name)' (wake on pattern match off)" {
+            try { Set-NetAdapterPowerManagement -Name $nic.Name -WakeOnPattern Disabled -ErrorAction Stop } catch { Note "  (pattern wake setting not available: $($_.Exception.Message))" }
+            try { Set-NetAdapterAdvancedProperty -Name $nic.Name -DisplayName 'Wake on Pattern Match' -DisplayValue 'Disabled' -ErrorAction Stop } catch { Note '  (no Wake on Pattern Match driver setting)' }
+        }
     }
 } else { Note 'No wired network adapter is connected: Wake-on-LAN skipped (it works over a cable only).' }
 
