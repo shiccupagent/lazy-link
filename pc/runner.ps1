@@ -15,6 +15,13 @@ A job cancelled before it starts goes straight from queued to cancelled (seconds
 One job at a time, oldest first. When this file changes on disk the runner exits and the task's
 loop starts the new copy (that is how `pcjob push-runner` updates it).
 
+Lanes: a job folder with a 'lane' file (one word, e.g. test) belongs to that lane's runner, not this one. The main
+runner starts one more copy of itself, `runner.ps1 -Lane test`, for short CPU/browser jobs (shelf checks, page
+tests), so they run beside a long GPU job instead of waiting behind it. The lane runner has its own log, heartbeat and
+lock (runner-test.*), never uses a warm server, caps each job at 15 min, and is a process of its own: a main
+runner that restarts never kills its job. It restarts itself on a new runner.ps1 between its jobs, exits when the main
+runner's heartbeat is over 5 min old, and the main runner starts it again when its heartbeat goes stale.
+
 Warm server: a job whose in.tar has warm.json (imagegen's ComfyUI jobs) gets ONE long-lived helper process that
 the runner owns, in its own kill-on-close job object, so it outlives the job and the next job skips its start:
   {"name", "exe", "cwd", "args": [...], "mkdirs": [...], "url", "health", "idle_s", "max_age_s", ...}
@@ -24,11 +31,16 @@ Same warm.json as the server that is up, and it answers: reused. It is stopped b
 or with a different one (Blender, voice, setup ... get the whole GPU), when a job does not end 'done', after
 idle_s with no job, after max_age_s, and with the runner (its job object closes).
 #>
+param([ValidatePattern('^[a-z]{0,12}$')][string]$Lane = '')
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path (Split-Path $MyInvocation.MyCommand.Path)
 $Jobs = Join-Path $Root 'jobs'
-$Log = Join-Path $Root 'runner.log'
-$Beat = Join-Path $Root 'runner.heartbeat'
+$Suffix = if ($Lane) { "-$Lane" } else { '' }
+$Log = Join-Path $Root "runner$Suffix.log"
+$Beat = Join-Path $Root "runner$Suffix.heartbeat"
+$MainBeat = Join-Path $Root 'runner.heartbeat'
+$Lanes = @{ test = 900 }   # lane -> the most seconds one of its jobs may run
+if ($Lane -and -not $Lanes.ContainsKey($Lane)) { throw "no lane '$Lane'" }
 $Self = $MyInvocation.MyCommand.Path
 $SelfHash = (Get-FileHash $Self).Hash
 $Ps = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -107,9 +119,34 @@ function Set-Status($dir, $st) {
 }
 # A job cancelled while it still waits its turn ends here, without unpacking or starting anything, so the Mac
 # sees 'cancelled' within seconds instead of 'queued' until the runner reaches it. Runs while another job runs too.
+# The lane a job folder belongs to: the one word in its 'lane' file, or '' (this main runner).
+function Get-Lane($dir) {
+    $f = Join-Path $dir 'lane'
+    if (-not (Test-Path $f)) { return '' }
+    try { return ([string](Get-Content $f -TotalCount 1)).Trim() } catch { return '?' }
+}
+# Main runner only: start the lane runners whose heartbeat went stale (missing, or over 30 s old), at most once a
+# minute each. Their lock keeps it to one each; one that finds the lock taken exits at once.
+$script:LaneStarted = @{}
+function Watch-Lanes {
+    if ($Lane) { return }
+    foreach ($l in $Lanes.Keys) {
+        $b = Join-Path $Root "runner-$l.heartbeat"
+        $age = if (Test-Path $b) { ((Get-Date) - (Get-Item $b).LastWriteTime).TotalSeconds } else { 1e9 }
+        $last = $script:LaneStarted[$l]
+        if ($age -lt 30 -or ($last -and ((Get-Date) - $last).TotalSeconds -lt 60)) { continue }
+        try {
+            Start-Process $Ps -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$Self`"", '-Lane', $l `
+                -WorkingDirectory $Root -WindowStyle Hidden | Out-Null
+            Write-Log "started the $l lane runner (its heartbeat was $([int][math]::Min($age, 99999)) s old)"
+        } catch { Write-Log "could not start the $l lane runner: $_" }
+        $script:LaneStarted[$l] = Get-Date
+    }
+}
 function Skip-Cancelled {
     foreach ($d in Get-ChildItem $Jobs -Directory) {
         $dir = $d.FullName
+        if ((Get-Lane $dir) -ne $Lane) { continue }
         if (-not ((Test-Path (Join-Path $dir 'ready')) -and (Test-Path (Join-Path $dir 'cancel')) -and
                   -not (Test-Path (Join-Path $dir 'status.json')))) { continue }
         try {
@@ -190,6 +227,7 @@ function Invoke-Job($dir) {
     $id = Split-Path $dir -Leaf
     $timeout = 3600
     try { $timeout = [int](Get-Content (Join-Path $dir 'job.json') -Raw | ConvertFrom-Json).timeout_s } catch {}
+    if ($Lane -and ($timeout -le 0 -or $timeout -gt $Lanes[$Lane])) { $timeout = $Lanes[$Lane] }
     $st = @{ id = $id; state = 'running'; started = (Get-Date -Format o); timeout_s = $timeout; pid = $null; exit = $null; seconds = $null }
     Set-Status $dir $st
     Write-Log "start $id (timeout ${timeout}s)"
@@ -201,7 +239,7 @@ function Invoke-Job($dir) {
         $rc = Invoke-Native $Tar -xf (Join-Path $dir 'in.tar') -C $work
         if ($rc -ne 0) { throw "tar unpack failed ($rc)" }
         if (-not (Test-Path (Join-Path $work 'job.ps1'))) { throw 'job.ps1 missing from in.tar' }
-        Use-Warm $work
+        if (-not $Lane) { Use-Warm $work }   # a lane job never touches the main runner's warm server
         $env:RENDER_JOB = $id; $env:RENDER_OUT = $out
         $p = Start-Process $Ps -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $work 'job.ps1') `
             -WorkingDirectory $work -WindowStyle Hidden -PassThru `
@@ -216,6 +254,7 @@ function Invoke-Job($dir) {
         while (-not $p.WaitForExit(2000)) {
             Set-Content $Beat (Get-Date -Format o)
             Skip-Cancelled
+            Watch-Lanes
             $why = if (Test-Path (Join-Path $dir 'cancel')) { 'cancelled' } elseif ($clock.Elapsed.TotalSeconds -gt $timeout) { 'timeout' }
             if ($why) {
                 [void][LazyLink.Native]::Kill($jobObj)
@@ -242,11 +281,16 @@ function Invoke-Job($dir) {
 
 New-Item -ItemType Directory -Force $Jobs | Out-Null
 # One runner at a time: the lock file stays open (unshared) for this runner's whole life.
-try { $lock = [IO.File]::Open((Join-Path $Root 'runner.lock'), 'OpenOrCreate', 'ReadWrite', 'None') }
-catch { Write-Log "another runner holds runner.lock; pid $PID exits"; Start-Sleep 30; exit 0 }
+try { $lock = [IO.File]::Open((Join-Path $Root "runner$Suffix.lock"), 'OpenOrCreate', 'ReadWrite', 'None') }
+catch {
+    if ($Lane) { exit 0 }   # this lane already has its runner
+    Write-Log "another runner holds runner.lock; pid $PID exits"; Start-Sleep 30; exit 0
+}
 Write-Log "runner up (pid $PID)"
-# A job left 'running' by a crash or reboot is marked failed, never silently rerun.
+# A job left 'running' by a crash or reboot is marked failed, never silently rerun. Each runner sweeps only its own
+# lane: a lane runner keeps running its job while the main runner restarts.
 Get-ChildItem $Jobs -Directory | ForEach-Object {
+    if ((Get-Lane $_.FullName) -ne $Lane) { return }
     $sf = Join-Path $_.FullName 'status.json'
     if ((Test-Path $sf) -and ((Get-Content $sf -Raw | ConvertFrom-Json).state -eq 'running')) {
         $st = @{}; (Get-Content $sf -Raw | ConvertFrom-Json).psobject.Properties | ForEach-Object { $st[$_.Name] = $_.Value }
@@ -257,9 +301,14 @@ Get-ChildItem $Jobs -Directory | ForEach-Object {
 while ($true) {
     Set-Content $Beat (Get-Date -Format o)
     if ((Get-FileHash $Self).Hash -ne $SelfHash) { Stop-Warm 'the runner restarts'; Write-Log 'runner.ps1 changed; restarting'; exit 0 }
+    if ($Lane -and (-not (Test-Path $MainBeat) -or ((Get-Date) - (Get-Item $MainBeat).LastWriteTime).TotalSeconds -gt 300)) {
+        Write-Log 'the main runner has been quiet for 5 min; exiting'; exit 0
+    }
     Skip-Cancelled
+    Watch-Lanes
     $next = Get-ChildItem $Jobs -Directory |
-        Where-Object { (Test-Path (Join-Path $_.FullName 'ready')) -and -not (Test-Path (Join-Path $_.FullName 'status.json')) } |
+        Where-Object { (Test-Path (Join-Path $_.FullName 'ready')) -and -not (Test-Path (Join-Path $_.FullName 'status.json')) -and
+                       (Get-Lane $_.FullName) -eq $Lane } |
         Sort-Object CreationTime | Select-Object -First 1
     try { Watch-Warm } catch { Write-Log "warm check failed: $_"; try { Stop-Warm 'its check failed' } catch {} }
     if (-not $next) { Start-Sleep 2; continue }

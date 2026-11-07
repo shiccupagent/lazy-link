@@ -34,6 +34,10 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `python3 imagegen/watch.py [--mark]`: new open image models on Hugging Face (public API, no key).
 - `./local/local.py ask ASKS.jsonl --out DIR` / `ask-one "..."` / `transcribe FILE... --out DIR`.
 - `./mac/pcjob run DIR --fetch OUT`: any folder with a job.ps1 (PowerShell; write results to $env:RENDER_OUT).
+  `--lane test` (Windows PC): a short CPU/browser job (page tests, shelf checks), at most 15 min, run by the PC's test
+  lane runner beside the GPU job instead of behind it, one at a time. `./mac/pcjob lane test` says if it is free (exit 0
+  free, 1 busy, 2 down, 75 quiet hold): run the test on this computer when it is not. `run --lane` exits 75 when the
+  lane is down. `pcjob list` shows the main jobs plus a `test lane:` line; `list --lane test` shows that lane's jobs.
 - `./video/webvideo.py PAGE.html --out DIR [--query "a=1"] [--seconds 6] [--fps 30] [--size 1920x1080]`: animated web page to .mp4 + .png, rendered on the PC (docs/WEB-TO-VIDEO.md).
 - `./voice/install.py [--script FILE]`: the walk-up voice recorder on a Windows PC ("Record voices" desktop icon).
   `./voice/clone.py --setup` once, then `./voice/clone.py [--only ID,...]`: AI copies of the recorded voices (Chatterbox, offline

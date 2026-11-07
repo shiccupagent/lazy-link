@@ -33,7 +33,8 @@ to sleep would kill a 20-minute job.
 So the Mac doesn't run jobs; it **drops them off**. A job is a folder with a `job.ps1` script.
 `pcjob run` packs it, copies it to `C:\lazylink\jobs\<id>\`, and writes a `ready` marker last.
 A scheduled task (the *runner*) runs as `lazylink` from boot, whether or not anyone is signed in, and:
-- runs one job at a time, oldest first;
+- runs one job at a time, oldest first (on Windows, a second runner takes `--lane test` jobs: short CPU or
+  browser jobs, at most 15 min each, so they run beside a long GPU job instead of waiting behind it);
 - keeps the PC awake while a job runs;
 - puts each job in a Windows *job object*, so a timeout or `pcjob cancel` ends the job and
   everything it started (no orphan holding the GPU);
