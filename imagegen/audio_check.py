@@ -10,6 +10,8 @@ first "__"). Writes DIR/soundboard.mp3 (every sound in a row, 0.7 s apart) and D
 
 --fix also writes game-ready copies to OUTDIR (.mp3): silence trimmed, short fades, shelf cut above 6 kHz and a
 3-4 kHz dip, loudness -18 LUFS with a -1 dBFS ceiling; the fixed copies are checked again.
+A take that still fails gets the highest low-pass cutoff that passes; OUTDIR/fix.json lists each copy's
+cutoff (lowpass_hz, null = none) so a picker can prefer the least-cut take.
 --loop names sounds that repeat in the game (engine hum, ambience, a music bed): only the silence padded onto the
 ends is cut (10 ms windows more than 40 dB under the peak; looped, it is a dropout every time round), no fades; the tail is
 crossfaded into the head (equal power, 0.25 s, 1 s for music) and the copy starts on an upward zero crossing, so it
@@ -149,7 +151,7 @@ def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(
     measured tiled, see loudness) without letting the peak pass -1 dBFS.
     loops / music: names (before "__") of sounds that repeat, and of stereo tracks (-16 LUFS, 192k); see the top."""
     outdir.mkdir(parents=True, exist_ok=True)
-    done = []
+    done, report = [], {}
     for p in files:
         name = p.stem.split("__")[0]
         is_loop, is_music = name in loops, name in music
@@ -210,6 +212,8 @@ def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(
                 cut, y = lo, eq(lo)
             print(f"{p.name}: low-pass at {lo:.0f} Hz to pass the gate" if cut else
                   f"{p.name}: still fails the gate at 150 Hz low-pass (not fixable this way; listen or regenerate)")
+        report[p.stem + ".mp3"] = {"from": p.name, "lowpass_hz": round(cut) if cut else None,
+                                    "passes": cut is not None or passes(y)}
         tmp = outdir / (p.stem + ".tmp.wav")
         enc = lambda arr, dst, codec: subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", str(ch),
                                                       "-i", "-", *codec, str(dst)],
@@ -224,6 +228,9 @@ def fix(files, outdir, frequent=frozenset(), loops=frozenset(), music=frozenset(
         if keep:
             print(f"{p.name}: loop of {keep / SR:.2f} s")
         done.append(dst)
+    # fix.json: the low-pass each copy needed (null = none). A kit choosing among takes should prefer the highest
+    # cutoff: a click cut to ~1.2 kHz passes the gate but sounds dull (FlatHead bolt-off 2026-11-06).
+    (outdir / "fix.json").write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return done
 
 
