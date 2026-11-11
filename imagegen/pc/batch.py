@@ -32,6 +32,24 @@ LOADED = SCRATCH / "loaded.json"   # warm ComfyUI only: which model the last job
 WARM = os.environ.get("LAZY_WARM") if os.environ.get("LAZY_WARM_URL") == URL else None
 
 
+
+def snap_alpha(alpha):
+    """models.json cutout "snap": [lo, hi]: alpha at or under lo becomes 0, at or over hi 255. A matting model leaves solid
+    things at 250-254 (a faint ghost of the background shows through in a game) and a light haze around them."""
+    import numpy as np
+    lo, hi = M["cutout"].get("snap", (0, 255))
+    a = np.asarray(alpha).copy()
+    a[a <= lo] = 0
+    a[a >= hi] = 255
+    return a
+
+
+def snap_png(path):
+    from PIL import Image
+    im = Image.open(path).convert("RGBA")
+    im.putalpha(Image.fromarray(snap_alpha(im.getchannel("A"))))
+    im.save(path)
+
 def api(path, body=None, timeout=30):
     req = urllib.request.Request(URL + path, data=None if body is None else json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -210,7 +228,7 @@ def finish_video(ask, key, saved, cut):
     if cut:
         if len(cut) != len(rgb):
             sys.exit(f"batch: {ask['name']}: {len(cut)} cutout frames for {len(rgb)} video frames")
-        alpha = [np.asarray(Image.open(p))[..., 3] for p in cut]
+        alpha = [snap_alpha(np.asarray(Image.open(p))[..., 3]) for p in cut]
     elif ask.get("cutout") == "black":
         lo, hi = 10.0, 110.0   # max channel: below lo clear, above hi solid
         alpha = [(np.clip((f.max(axis=2).astype(np.float32) - lo) / (hi - lo), 0, 1) * 255).round().astype(np.uint8) for f in rgb]
@@ -420,6 +438,8 @@ def main():
                 for img in imgs:  # SaveImage names files <prefix>_00001_.png
                     tag = "-cutout" if img["filename"].startswith(prefix + "-cutout") else ""
                     shutil.move(str(SCRATCH / "out" / img.get("subfolder", "") / img["filename"]), OUT / f"{prefix}{tag}.png")
+                    if tag:
+                        snap_png(OUT / f"{prefix}{tag}.png")
                 row = {"model": key, "ask": ask["name"], "seconds": round(secs, 2), "cold": i == 0 and not warm_model,
                        "w": ask.get("w", 1024), "h": ask.get("h", 1024), "vram_mb": vram_used_mb()}
                 timings["runs"].append(row)

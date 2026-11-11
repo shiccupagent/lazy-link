@@ -1,0 +1,10 @@
+{
+ "voices": {
+  "coach": "A friendly older British man, warm and gently humorous, relaxed pace.",
+  "host": "A bright, cheerful young woman, upbeat and clear, like a game show host."
+ },
+ "lines": [
+  {"id": "welcome-host", "text": "Welcome back! Your garden grew three new flowers while you were away.", "voice": "host"},
+  {"id": "boss-coach", "text": "Watch out, the storm king is coming. Grab your shield and hold the gate!", "voice": "coach"}
+ ]
+}

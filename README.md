@@ -64,7 +64,7 @@ With neither, `--setup` installs every job that fits your card except `maps`, `v
 
 | Job | What you can do | What it installs | Download |
 |---|---|---|---|
-| `images` | pictures, transparent cutouts | ComfyUI + PyTorch, the best picture model that fits your card (Krea 2 Turbo, Z-Image or FLUX.2 klein), BiRefNet | 5 GB + 16-21 GB |
+| `images` | pictures, transparent cutouts | ComfyUI + PyTorch, the best picture model that fits your card (FLUX 3 klein, Krea 2 Turbo, Z-Image or FLUX.2 klein), BiRefNet HR-matting | 5 GB + 16-21 GB |
 | `sounds` | sound effects, music | Stable Audio 3 (small and/or medium) | 4-14 GB |
 | `3d` | picture to 3D model (.glb) | Pixal3D + TRELLIS.2 | about 15 GB |
 | `maps` | bump maps for game surfaces | MoGe-2 | under 1 GB |
@@ -210,6 +210,7 @@ light.add(light.target);
 ./voice/clone.py --setup    # once: installs Chatterbox on the PC (about 6 GB with its own torch)
 ./voice/clone.py            # after you record: your recording and the AI copy, side by side
 ./voice/speak.py LINES.json --out DIR   # many lines in your copied voices, each sentence checked by Whisper
+./voice/describe.py LINES.json --out DIR   # or: voices made from a description, no recording (Ming-3.0-TTS)
 ```
 Double-click **Record voices** on the PC, put on your headset and read the lines (about 20 minutes, one line at a
 time, Space to record). The page records the plain microphone (no noise filters, which the copy would learn too)
@@ -291,10 +292,13 @@ More: [docs/FAQ.md](docs/FAQ.md) (for example, how to let your AI organise your 
 ## Licences of the models (check before you sell what you make)
 | Use | Model | Licence |
 |---|---|---|
-| Images (default) | Krea 2 Turbo | Krea 2 Community: free while yearly revenue < $1M |
+| Images (default) | FLUX 3 Image klein | FLUX Kommunity: free while yearly revenue < $5M; review every picture before use, say it's AI where the law asks. Gated: accept the terms on Hugging Face, then `keydrop run HF_TOKEN -- imagegen/imagegen.py fetch` (any key manager that sets HF_TOKEN works) |
+| Images | Krea 2 Turbo | Krea 2 Community: free while yearly revenue < $1M |
 | Images, quick / any use | FLUX.2 klein 4B, Z-Image Turbo | Apache-2.0 |
-| Transparent cutouts | BiRefNet | MIT |
-| Sounds and music | Stable Audio 3 (small / medium) | Stability AI Community: free while yearly revenue < $1M |
+| Transparent cutouts | BiRefNet HR-matting (soft edges: hair, glass, smoke) | MIT |
+| Sounds and music | Stable Audio 3 medium (`make audio`; small SFX is `make sfx`) | Stability AI Community: free while yearly revenue < $1M |
+| Music (option) | MiniMax Music 3 (`make music3`) | MiniMax-Music3 Community: free while yearly revenue < $20M, but your product must show "MiniMax-Music3" and music you publish must say it's AI-made |
+| Voice lines from a description | Ming-3.0-TTS 0.5B (`voice/describe.py`) | MIT |
 | Picture to 3D | Pixal3D + TRELLIS.2 | MIT |
 | Video | Wan 2.2 TI2V 5B | Apache-2.0 |
 | Chat | Qwen3-30B-A3B, gpt-oss-20b | Apache-2.0 |

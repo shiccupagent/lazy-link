@@ -1,0 +1,120 @@
+{
+ "_doc": "What tools/model_watch.py looks for each week: per category, the Hugging Face pipeline tags to read (the most-trending models first), and words that must appear in a model's name or tags (\"need\", any one of them). \"known\" lists repos we already use or have tested beyond the ones in imagegen/models.json, voice/*.json (read automatically), so they are not reported as new.",
+ "per_tag": 40,
+ "min_likes": 30,
+ "max_age_days": 120,
+ "gpu_gb": 24,
+ "categories": {
+  "Pictures": {
+   "tags": [
+    "text-to-image"
+   ]
+  },
+  "Picture editing": {
+   "tags": [
+    "image-to-image"
+   ]
+  },
+  "Cutouts": {
+   "tags": [
+    "image-segmentation",
+    "image-to-image"
+   ],
+   "need": [
+    "background",
+    "matting",
+    "rmbg",
+    "birefnet",
+    "cutout",
+    "segment"
+   ]
+  },
+  "Music and sound": {
+   "tags": [
+    "text-to-audio"
+   ]
+  },
+  "Voice": {
+   "tags": [
+    "text-to-speech"
+   ]
+  },
+  "3D": {
+   "tags": [
+    "image-to-3d",
+    "text-to-3d"
+   ]
+  },
+  "Video": {
+   "tags": [
+    "text-to-video",
+    "image-to-video"
+   ]
+  },
+  "Depth and normals": {
+   "tags": [
+    "depth-estimation"
+   ]
+  }
+ },
+ "known": [
+  "black-forest-labs/flux-3-image-klein",
+  "krea/krea-2",
+  "stabilityai/stable-audio-3-medium",
+  "stabilityai/stable-audio-3-small-sfx",
+  "stabilityai/stable-audio-3-small-music",
+  "stabilityai/stable-audio-3-medium-base",
+  "stabilityai/stable-audio-3-small-sfx-base",
+  "stabilityai/stable-audio-3-small-music-base",
+  "stabilityai/stable-audio-3-optimized",
+  "MiniMaxAI/MiniMax-Music3",
+  "ZhengPeng7/BiRefNet",
+  "ZhengPeng7/BiRefNet_HR-matting",
+  "PramaLLC/BEN2",
+  "hexgrad/Kokoro-82M",
+  "inclusionAI/Ming-3.0-tts-0.5B",
+  "Ruicheng/MoGe-2",
+  "Wan-AI/Wan2.2-TI2V-5B",
+  "tencent/Hunyuan3D-2",
+  "OpenMOSS-Team/MOSS-Image-Base"
+ ],
+ "_makers_doc": "a repo whose name has one of these words but whose author is not one of the listed makers is someone else's copy, repack or add-on of that model, not a new model",
+ "makers": {
+  "minimax": [
+   "minimaxai"
+  ],
+  "h3": [
+   "minimaxai"
+  ],
+  "krea": [
+   "krea"
+  ],
+  "flux": [
+   "black-forest-labs"
+  ],
+  "ltx": [
+   "lightricks"
+  ],
+  "wan": [
+   "wan-ai"
+  ],
+  "qwen": [
+   "qwen"
+  ],
+  "hunyuan": [
+   "tencent",
+   "tencent-hunyuan"
+  ],
+  "sdxl": [
+   "stabilityai"
+  ],
+  "stable-audio": [
+   "stabilityai"
+  ]
+ },
+ "blocked_licences": {
+  "minimax-h3-image-community-license-agreement": "bars any use, even running it, in the US, EU, UK and South Korea (read 2026-11-10)",
+  "minimax-h3-community-license-agreement": "same territory ban as H3 Image"
+ },
+ "_blocked_doc": "licences we read and ruled out: models under them are left out of the report (name: why)"
+}

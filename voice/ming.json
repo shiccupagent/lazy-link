@@ -1,0 +1,15 @@
+{
+ "_doc": "Ming-3.0-TTS 0.5B (inclusionAI, MIT): says a line in a voice made from a written description (\"a warm older British man, relaxed\"), no recording needed. The default for game voice lines since 2026-11-10 (owner pick after the bake-off: the most expressive; about 11 s per line on a 3090, 3 GB). voice/describe.py installs it on the PC on first use: its own venv (torch 2.6.0 cu124, like Chatterbox) and the code and weights at fixed revisions. Bump version when any of these change, so lines made with the old one can be found and re-made.",
+ "version": 1,
+ "licence": "MIT: free for any use, including commercial (code and weights)",
+ "venv": "tools\\ming-venv",
+ "python": "3.12",
+ "torch": "torch==2.6.0 torchaudio==2.6.0",
+ "torch_index": "https://download.pytorch.org/whl/cu124",
+ "code_repo": "inclusionAI/Ming-3.0-tts",
+ "code_sha": "a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+ "model_repo": "inclusionAI/Ming-3.0-tts-0.5B",
+ "model_sha": "7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+ "settings": {"task": "FREEFORM", "use_zero_spk_emb": true, "text_normalization": false},
+ "_settings_doc": "text_normalization is off because pynini (its number reader) has no Windows wheel: write numbers as words (\"three\", not \"3\")."
+}

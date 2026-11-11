@@ -9,15 +9,15 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 
 ## Commands
 - `./check.py [--setup]`: what the PC has, what to fix, which models fit (only reads the PC).
-- `./imagegen/imagegen.py one "prompt" --out DIR [--model krea2|klein|zimage] [--size WxH] [--cutout]`
+- `./imagegen/imagegen.py one "prompt" --out DIR [--model klein3|krea2|klein|zimage] (default klein3 = FLUX 3 klein) [--size WxH] [--cutout]`
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
-- `./imagegen/imagegen.py make audio|sfx|mesh|maps ASKS.json --out DIR`: sounds/music, picture to 3D, or picture to normal + depth maps (MoGe-2).
+- `./imagegen/imagegen.py make audio|sfx|music3|mesh|maps ASKS.json --out DIR`: sounds/music (`audio` = Stable Audio 3 medium, the pick for game sounds and music; `sfx` = the small SFX model; `music3` = MiniMax Music 3, credit rule in models.json), picture to 3D, or picture to normal + depth maps (MoGe-2).
   mesh params: `faces` (triangles after decimation; 4000-5000 for phone props, the normal map keeps the detail),
   `texture` (map size in px, 256-4096; a number, never true/false), `seed`. `make` refuses asks that don't fit (models.json "limits").
 - `./imagegen/imagegen.py make video ASKS.json --out DIR`: short clips from a prompt, or from a picture as the first frame (Wan 2.2
   TI2V 5B, Apache-2.0, 24 fps). Ask: `{"name", "params": {"prompt", "seconds", "width", "height", "seed"}, "image": "first.png",
   "loop": 0.5, "cutout": true, "frames": true}`; `loop` crossfades the end into the start so it repeats; `cutout` adds a
-  transparent `.webm` (VP9 alpha), `frames` its PNG frames. `"cutout": true` = BiRefNet (solid things; drops motion-blurred
+  transparent `.webm` (VP9 alpha), `frames` its PNG frames. `"cutout": true` = BiRefNet HR-matting (soft edges kept; drops motion-blurred
   ones), `"cutout": "black"` = brightness key for glows, sparks and things falling on black (prompt for a black background).
   Sizes in multiples of 32; a 3 s 768x768 clip takes about 2 min on a 3090. Look at every clip before you use it.
 - `./imagegen/imagegen.py tile PICTURE... --out DIR`: seamless copy of each surface picture (`<name>_tile.png` + a 2x2 preview to check the seams); no AI, needs numpy, scipy, Pillow on this computer.
@@ -48,6 +48,10 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
   `./voice/lipsync.py --setup` once, then `./voice/lipsync.py VOICE.wav... --out DIR [--text T...]`: mouth shapes for a
   talking character (Rhubarb Lip Sync on the PC; `<name>.json` mouthCues A-H/X; words from --text or `<name>.txt` beside
   the recording make them land right). Windows PC only. Shape table in the script's docstring.
+  `./voice/describe.py LINES.json --out DIR`: lines in voices made from a written description (Ming-3.0-TTS 0.5B, MIT; voice/ming.json),
+  the default for game voice lines; installs itself on the PC on first use; about 11 s per line on a 3090. Write numbers as words.
+- `python3 tools/model_watch.py --out DIR`: the week's trending new open models on Hugging Face per category (pictures, cutouts, audio, voice, 3D, video, depth) that
+  are not ours, not copies, and not barred from commercial use; settings and ruled-out licences in tools/model_watch.json. Candidates for a side-by-side test, not picks.
   Voice recordings are personal: never commit, upload or paste them; they stay in voice/recordings and voice/refs.
 - `./examples/try.py [spin|pictures|sounds|room|3d|all]`: end-to-end examples, each ending in a file to open (out/try/).
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap` (`cancel` on a queued job ends it
