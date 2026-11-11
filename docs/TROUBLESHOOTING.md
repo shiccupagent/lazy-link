@@ -46,8 +46,16 @@ So `pcjob` never checks the PC after putting it down. config.json `"rest"` picks
 hibernate; test that `pcjob wake` brings the PC back from hibernate before you pick it.
 
 **Downloads.** `fetch` resumes broken downloads and checks size + sha256 before using a file.
-Some models on Hugging Face are *gated* (you must sign in and accept terms); those aren't in
-`models.json`.
+Some models on Hugging Face are *gated*: you sign in and accept the terms on the model's page yourself
+(never your AI agent), and downloads need a read token from your Hugging Face settings. Such a file has
+`"gated": "HF_TOKEN"` in `models.json`; fetch it through a key manager that sets the token for one command,
+e.g. `keydrop run HF_TOKEN -- ./imagegen/imagegen.py fetch --models NAME`. The token goes to the PC over ssh
+stdin into `secrets\` (job account only), the fetch job deletes it as it reads it, and `fetch` removes it again
+when the job ends; it never lands in a job folder, a log or a command line. Revoke the token when you are done
+if you like: files already downloaded keep working.
+
+If ComfyUI says a model "is in models\comfy but ComfyUI does not look there", that ComfyUI was set up before Lazy
+Link or by hand: any `imagegen.py fetch` adds our folder to its `extra_model_paths.yaml` (the rest stays).
 
 **Model quirks we hit.**
 - Fast ("distilled") image models barely change between seeds: change the prompt instead.

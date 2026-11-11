@@ -59,6 +59,10 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./mac/pcshare setup | keychain | check | mount [DIR]`: a folder on the Windows PC (D:\MacShare) that the Mac opens over
   SMB; `setup` puts a one-click admin shortcut on the PC's desktop for the user, `keychain` moves the share's random
   password into the Mac's keychain (never print it). What it changes and -Undo: pc/setup-share.ps1.
+- `./mac/pcjob secret put|drop|has NAME`: a secret for one job, taken from the environment variable NAME (set by a key
+  manager: `keydrop run NAME -- ...`), sent over ssh stdin to the PC's `secrets\` (job account only). Gated Hugging
+  Face files (`"gated": "HF_TOKEN"` in models.json) do this by themselves: `keydrop run HF_TOKEN -- ./imagegen/imagegen.py fetch ...`.
+  Never echo, print or pass a secret on a command line; accepting a gated model's terms is the user's step.
 - `./mac/pcjob quiet HH:MM | off`: leave the PC alone until then (an overnight hibernate: any ssh can wake it). `run` waits;
   every other PC command exits 75 without touching the network. Respect a hold someone else set; ask before `quiet off`.
 - Cheap electricity: `--cheap` on `pcjob run`, or `LAZY_CHEAP=1` before any command, holds the job until

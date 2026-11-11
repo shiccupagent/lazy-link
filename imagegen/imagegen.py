@@ -86,13 +86,30 @@ def warm_spec():
             "health": "/system_stats", "idle_s": c["warm_idle_s"], "max_age_s": c["warm_max_age_s"]}
 
 
-def send(files, ps1, want, name, out, timeout, sh=None, warm=False):
+def send(files, ps1, want, name, out, timeout, sh=None, warm=False, secrets=()):
     """Run a job on the PC: ps1 is the Windows script, sh the POSIX job.sh (Linux or Mac). Every command passes both.
-    warm=True: ComfyUI jobs; the Windows runner keeps ComfyUI up for the next one (LAZY_WARM=0 turns it off)."""
+    warm=True: ComfyUI jobs; the Windows runner keeps ComfyUI up for the next one (LAZY_WARM=0 turns it off).
+    secrets: environment variable names (set by your key manager) copied to the PC's secrets/ folder for this job
+    over ssh stdin, and removed again when it ends, whatever happened; the job deletes each one on reading."""
     pc = load_pcjob()
     if pc.POSIX and sh is None:   # refuse before pc.wake(): nothing is woken for a command with no POSIX script
         sys.exit(f"imagegen: this command has no {pc.OS_NAME} script yet")
+    for n in secrets:   # refuse before pc.wake() too
+        if not os.environ.get(n, "").strip():
+            sys.exit(f"imagegen: {name} needs {n}; run it through your key manager, e.g. keydrop run {n} -- {' '.join(sys.argv)}")
     woke = pc.wake()
+    left = list(secrets)   # still on the PC; dropped before release() below, which may put the PC to sleep
+    try:
+        for n in secrets:
+            pc.put_secret(n)
+        _send(pc, files, ps1, want, name, out, timeout, sh, warm)
+    finally:
+        while left:
+            pc.drop_secret(left.pop())
+    pc.release(woke)   # back to sleep if we woke it and nobody is on it
+
+
+def _send(pc, files, ps1, want, name, out, timeout, sh, warm):
     with tempfile.TemporaryDirectory() as td:
         job = Path(td) / "job"
         job.mkdir()
@@ -108,7 +125,6 @@ def send(files, ps1, want, name, out, timeout, sh=None, warm=False):
         json.dump({"extra_model_folders": pc.CFG.get("extra_model_folders", {})}, open(job / "link.json", "w"))
         job_id = pc.cmd_run(Namespace(dir=str(job), name=name, timeout=timeout, wait=True, fetch=str(out)))
     pc.cmd_rm(Namespace(id=job_id))
-    pc.release(woke)   # back to sleep if we woke it and nobody is on it
 
 
 def run(asks, keys, out, timeout, inputs=()):
@@ -369,8 +385,9 @@ def main():
         files = {MODELS["models"][k][part] for k in model_keys(a.models) for part in ("unet", "clip", "vae")} | {MODELS["cutout"]["model"]}
         files = sorted(files | {f for r in a.recipes.split(",") if r for f in MODELS["recipes"][r]["files"]})
         out = REPO / "reports" / ("fetch-" + time.strftime("%Y%m%d-%H%M%S"))
+        gated = sorted({MODELS["files"][f]["gated"] for f in files if MODELS["files"][f].get("gated")})
         send([HERE / "models.json"], (HERE / "pc" / "fetch.ps1").read_text(),
-             files, "imagegen-fetch", out, 4 * 3600, sh=posix_script("fetch.sh"))
+             files, "imagegen-fetch", out, 4 * 3600, sh=posix_script("fetch.sh"), secrets=gated)
         print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
 
 

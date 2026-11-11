@@ -27,12 +27,18 @@ for name in want:
     dest = os.path.join(lib, f["dir"], name)
     cands = [dest] + [os.path.join(d, name) for d in (extra.get(f["dir"]) or [])]
     have = next((c for c in cands if os.path.isfile(c) and os.path.getsize(c) == f["size"]), "")
-    print("\t".join([name, str(f["size"]), f["sha256"], f["url"], dest, have]))
+    print("\t".join([name, str(f["size"]), f["sha256"], f["url"], dest, f.get("gated") or "-", have]))
 PY
 )
 
+# A gated file (models.json "gated": "HF_TOKEN") needs the token `imagegen.py fetch` put in secrets/ just before this
+# job (pcjob secret put). Read it, delete the file at once, and give it to curl on stdin as a header (printf is a
+# shell builtin, so the token is never on a command line); curl drops it when Hugging Face redirects to its CDN.
+token_of() { tf="$RENDER_ROOT/secrets/$1"; [ -f "$tf" ] && { cat "$tf"; rm -f "$tf"; }; return 0; }
+HF_TOKEN_VALUE=""; if printf '%s\n' "$PLAN" | cut -f6 | grep -qx HF_TOKEN; then HF_TOKEN_VALUE=$(token_of HF_TOKEN); fi
+
 need=0; n=0
-while IFS=$'\t' read -r name size sha url dest have; do
+while IFS=$'\t' read -r name size sha url dest gated have; do
     [ -z "$name" ] && continue
     n=$((n + 1))
     [ -n "$have" ] || need=$((need + size))
@@ -42,7 +48,7 @@ echo "$n file(s), $(awk -v b=$need 'BEGIN {printf "%.1f", b/1e9}') GB if none ar
 [ "$need" -le "$free" ] || die "not enough free space in $RENDER_ROOT"
 
 report=()
-while IFS=$'\t' read -r name size sha url dest have; do
+while IFS=$'\t' read -r name size sha url dest gated have; do
     [ -z "$name" ] && continue
     if [ -n "$have" ]; then
         echo "have  $name"
@@ -53,7 +59,11 @@ while IFS=$'\t' read -r name size sha url dest have; do
     part="$dest.part"
     echo "get   $name ($(awk -v b=$size 'BEGIN {printf "%.2f", b/1e9}') GB) from $url"
     t0=$(date +%s); tries=0
-    until curl -L --fail --silent --show-error --retry 5 --retry-delay 10 -C - -o "$part" "$url"; do
+    if [ "$gated" != "-" ]; then
+        [ "$gated" = HF_TOKEN ] && [ -n "$HF_TOKEN_VALUE" ] || die "$name is gated: accept its terms on Hugging Face, then run fetch through your key manager (keydrop run $gated -- imagegen.py fetch ...)"
+    fi
+    get() { if [ "$gated" != "-" ]; then printf 'Authorization: Bearer %s\n' "$HF_TOKEN_VALUE" | curl -H @- "$@"; else curl "$@"; fi; }
+    until get -L --fail --silent --show-error --retry 5 --retry-delay 10 -C - -o "$part" "$url"; do
         tries=$((tries + 1))
         [ "$tries" -ge 4 ] && die "download failed for $name"
         echo "  curl failed, resuming (try $((tries + 1)))"

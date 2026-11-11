@@ -123,14 +123,15 @@ def ids_ok(job_id):
     return job_id
 
 
-def ps(script, check=True, timeout=120):
-    """Run a PowerShell snippet on the PC; -EncodedCommand sidesteps all quoting."""
+def ps(script, check=True, timeout=120, stdin=None):
+    """Run a PowerShell snippet on the PC; -EncodedCommand sidesteps all quoting. stdin: text the snippet reads
+    with [Console]::In (how a secret travels: never in the command line, which Windows can log)."""
     need_config()
     enc = base64.b64encode(script.encode("utf-16-le")).decode()
     try:
         r = subprocess.run(["ssh", "-o", "BatchMode=yes", HOST,
                             f"powershell -NoProfile -NonInteractive -EncodedCommand {enc}"],
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout, input=stdin)
     except subprocess.TimeoutExpired:
         sys.exit(f"{NO_ANSWER}: ssh gave no answer in {timeout} s (Operation timed out)")
     if check and r.returncode != 0:
@@ -138,12 +139,12 @@ def ps(script, check=True, timeout=120):
     return r.stdout.strip()
 
 
-def sh(script, check=True, timeout=120):
+def sh(script, check=True, timeout=120, stdin=None):
     """Run a POSIX sh snippet on a Linux PC over ssh (the ssh user's login shell reads it)."""
     need_config()
     try:
         r = subprocess.run(["ssh", "-o", "BatchMode=yes", HOST, script], capture_output=True, text=True,
-                           timeout=timeout)
+                           timeout=timeout, input=stdin)
     except subprocess.TimeoutExpired:
         sys.exit(f"{NO_ANSWER}: ssh gave no answer in {timeout} s (Operation timed out)")
     if check and r.returncode != 0:
@@ -151,13 +152,13 @@ def sh(script, check=True, timeout=120):
     return r.stdout.strip()
 
 
-def on_pc(op, *args, check=True, timeout=120):
+def on_pc(op, *args, check=True, timeout=120, stdin=None):
     """One named remote operation: op(*args) gives (PowerShell, sh); this OS's string runs."""
     win, lin = op(*args)
     if POSIX:
         # the Mac's login shell is zsh, which fails on a glob with no match; /bin/sh behaves like Linux's sh here
-        return sh("/bin/sh -c " + q(lin) if MAC else lin, check, timeout)
-    return ps(win, check, timeout)
+        return sh("/bin/sh -c " + q(lin) if MAC else lin, check, timeout, stdin)
+    return ps(win, check, timeout, stdin)
 
 
 def scp(src, dst, timeout=3600):
@@ -282,6 +283,61 @@ def op_err_tail(job_id):
     d = ROOT + "/jobs/" + job_id
     return (f"Get-Content '{ROOT}/jobs/{job_id}/err.txt' -Tail 20 -ErrorAction SilentlyContinue",
             "tail -n 20 " + q(d + "/err.txt") + " 2>/dev/null; true")
+
+
+SECRET_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,40}$")
+
+
+def op_put_secret(name):
+    """The value arrives on stdin, never in the command. The folder is readable by the job account only
+    (Windows: inheritance off, one grant; POSIX: mode 700), and the job that needs it deletes it on reading."""
+    d = ROOT + "/secrets"
+    return (f"$d='{d}'; New-Item -ItemType Directory -Force $d | Out-Null; "
+            f"icacls $d /inheritance:r /grant:r \"$($env:USERNAME):(OI)(CI)F\" | Out-Null; "
+            f"$v=[Console]::In.ReadToEnd().Trim(); if (-not $v) {{ throw 'no value on stdin' }}; "
+            f"[IO.File]::WriteAllText('{d}/{name}', $v); 'saved'",
+            "umask 077; mkdir -p " + q(d) + " && chmod 700 " + q(d) + " && cat > " + q(d + "/" + name)
+            + " && [ -s " + q(d + "/" + name) + " ] && echo saved")
+
+
+def op_drop_secret(name):
+    p = ROOT + "/secrets/" + name
+    return (f"Remove-Item -Force -ErrorAction SilentlyContinue '{p}'; if (Test-Path '{p}') {{ 'still there' }} else {{ 'gone' }}",
+            "rm -f " + q(p) + "; [ -e " + q(p) + " ] && echo 'still there' || echo gone")
+
+
+def op_has_secret(name):
+    p = ROOT + "/secrets/" + name
+    return (f"if (Test-Path '{p}') {{ 'yes' }} else {{ 'no' }}", "[ -e " + q(p) + " ] && echo yes || echo no")
+
+
+def put_secret(name):
+    """Copy the environment variable NAME (set by a key manager, e.g. `keydrop run NAME -- ...`) to the PC
+    for one job. Its value is never printed, put on a command line or written to the job folder."""
+    if not SECRET_NAME.match(name):
+        sys.exit(f"pcjob: secret names are like HF_TOKEN (got {name!r})")
+    v = os.environ.get(name, "").strip()
+    if not v:
+        sys.exit(f"pcjob: {name} is not set; run this through your key manager, e.g. keydrop run {name} -- ...")
+    out = on_pc(op_put_secret, name, stdin=v + "\n")
+    if out.strip() != "saved":
+        sys.exit(f"pcjob: could not save {name} on the PC")
+
+
+def drop_secret(name):
+    if on_pc(op_drop_secret, name, check=False).strip() != "gone":
+        print(f"pcjob: WARNING: {name} may still be on the PC in secrets/; run: pcjob secret drop {name}", file=sys.stderr)
+
+
+def cmd_secret(a):
+    if a.action == "put":
+        put_secret(a.name); print(f"{a.name} is on the PC for the next job that needs it (it deletes it on reading)")
+    elif a.action == "drop":
+        drop_secret(a.name); print(f"{a.name} removed from the PC")
+    else:
+        has = on_pc(op_has_secret, a.name).strip() == "yes"
+        print(f"{a.name}: {'on the PC' if has else 'not on the PC'}")
+        sys.exit(0 if has else 1)
 
 
 def op_cancel(job_id):
@@ -1029,6 +1085,8 @@ def main():
     w.add_argument("--queue-max", type=int, default=QUEUE_MAX, help="seconds of waiting in the queue first")
     f = sub.add_parser("fetch"); f.add_argument("id"); f.add_argument("dest")
     sub.add_parser("put").add_argument("file")
+    se = sub.add_parser("secret", help="put/drop/has a secret for one job; the value comes from the environment variable NAME")
+    se.add_argument("action", choices=["put", "drop", "has"]); se.add_argument("name")
     sub.add_parser("quiet").add_argument("until", nargs="?", help="HH:MM (next one), YYYY-MM-DDTHH:MM, or off")
     for n in ("ping", "info", "wake", "push-runner", "cheap"):
         sub.add_parser(n)
@@ -1068,7 +1126,7 @@ def main():
     else:
         {"run": cmd_run, "status": cmd_status, "list": cmd_list, "log": cmd_log, "wait": cmd_wait,
          "fetch": cmd_fetch, "cancel": cmd_cancel, "rm": cmd_rm, "sleep": cmd_sleep, "put": cmd_put, "push-runner": cmd_push_runner,
-         "pair": cmd_pair, "info": cmd_info, "quiet": cmd_quiet, "lane": cmd_lane}[a.cmd](a)
+         "pair": cmd_pair, "info": cmd_info, "quiet": cmd_quiet, "lane": cmd_lane, "secret": cmd_secret}[a.cmd](a)
 
 
 if __name__ == "__main__":

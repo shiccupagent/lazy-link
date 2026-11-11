@@ -10,6 +10,17 @@ $extra = if (Test-Path link.json) { (Get-Content link.json -Raw | ConvertFrom-Js
 $lib = Join-Path $env:RENDER_ROOT $m.library
 $curl = "$env:SystemRoot\System32\curl.exe"
 $report = @()
+# A gated file (models.json "gated": "HF_TOKEN") needs a token that `imagegen.py fetch` put in secrets\ just before
+# this job (pcjob secret put). Read it, delete the file at once, and give it to curl on stdin as a header:
+# never on a command line, in this folder or in a log. curl drops the header when Hugging Face redirects to its CDN.
+$tokens = @{}
+foreach ($name in $want) {
+    $g = $m.files.$name.gated
+    if ($g -and -not $tokens.ContainsKey($g)) {
+        $sf = Join-Path $env:RENDER_ROOT "secrets\$g"
+        if (Test-Path $sf) { $tokens[$g] = (Get-Content $sf -Raw).Trim(); Remove-Item -Force $sf }
+    }
+}
 $need = 0
 foreach ($name in $want) { $need += $m.files.$name.size }
 $free = (Get-PSDrive ($lib.Substring(0, 1))).Free
@@ -26,9 +37,11 @@ foreach ($name in $want) {
     "get   $name ($([math]::Round($f.size / 1GB, 2)) GB) from $($f.url)"
     $t = [Diagnostics.Stopwatch]::StartNew()
     $tries = 0
+    if ($f.gated -and -not $tokens[$f.gated]) { throw "$name is gated: accept its terms on Hugging Face, then run fetch through your key manager (keydrop run $($f.gated) -- imagegen.py fetch ...)" }
     while ($true) {
         $tries++
-        & $curl -L --fail --silent --show-error --retry 5 --retry-delay 10 -C - -o $part $f.url
+        if ($f.gated) { "Authorization: Bearer $($tokens[$f.gated])" | & $curl -H '@-' -L --fail --silent --show-error --retry 5 --retry-delay 10 -C - -o $part $f.url }
+        else { & $curl -L --fail --silent --show-error --retry 5 --retry-delay 10 -C - -o $part $f.url }
         if ($LASTEXITCODE -eq 0) { break }
         if ($tries -ge 4) { throw "download failed for $name (curl $LASTEXITCODE)" }
         "  curl exit $LASTEXITCODE, resuming (try $tries)"
@@ -42,5 +55,20 @@ foreach ($name in $want) {
     $s = [int]$t.Elapsed.TotalSeconds
     "done  $name in $s s ($([math]::Round($f.size / 1MB / [math]::Max($s, 1), 1)) MB/s), sha256 ok"
     $report += [pscustomobject]@{ file = $name; state = 'downloaded'; seconds = $s }
+}
+# ComfyUI must search the library these files went to. A ComfyUI set up before Lazy Link (or by hand) may list
+# only other folders in its extra_model_paths.yaml: add ours as a section of its own and leave the rest as it is.
+# ComfyUI reads the file when it starts; a fetch job has no warm.json, so the runner's warm ComfyUI stops first.
+$yamlPath = Join-Path $env:RENDER_ROOT "$($m.comfy.dir)\extra_model_paths.yaml"
+$libFwd = $lib.Replace('\', '/')
+$yamlText = if (Test-Path $yamlPath) { Get-Content $yamlPath -Raw } else { '' }
+if (-not ($yamlText.Replace('\', '/') -match [regex]::Escape($libFwd))) {
+    $add = "`nlazy_link_library:`n"
+    foreach ($kind in $m.model_kinds) {
+        New-Item -ItemType Directory -Force (Join-Path $lib $kind) | Out-Null
+        $add += "  ${kind}: $libFwd/$kind`n"
+    }
+    Add-Content -Path $yamlPath -Value $add -Encoding ascii   # ascii: no BOM; our paths are plain
+    "ComfyUI now also looks in $lib (added to $yamlPath)"
 }
 $report | ConvertTo-Json | Set-Content (Join-Path $env:RENDER_OUT 'fetch.json')

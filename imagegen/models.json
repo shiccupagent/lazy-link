@@ -90,6 +90,38 @@
    "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094",
    "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
   },
+  "moss_image_base_int8_convrot.safetensors": {
+   "dir": "diffusion_models",
+   "size": 5413698958,
+   "sha256": "f601c1e1161915fb3fea003da0c1782e374dd960fbb3978bc0e4e3fa1f2d8e6f",
+   "url": "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/diffusion_models/moss_image_base_int8_convrot.safetensors"
+  },
+  "qwen3.5_9b_w4a8_gptq.safetensors": {
+   "dir": "text_encoders",
+   "size": 7343591088,
+   "sha256": "4cc6a1543ad2061806da46f35f90cadb4801dcba246c44782cf42ec0feb6407c",
+   "url": "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/text_encoders/qwen3.5_9b_w4a8_gptq.safetensors"
+  },
+  "flux3-image-klein-bf16.safetensors": {
+   "dir": "diffusion_models",
+   "size": 11097404512,
+   "sha256": "c3e9813cdd049c831c836b2e9db61150e49a93fc1a4c63b256494642fee0bd7c",
+   "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein/resolve/main/model.safetensors",
+   "gated": "HF_TOKEN"
+  },
+  "flux2-vae.safetensors": {
+   "dir": "vae",
+   "size": 336211292,
+   "sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3",
+   "url": "https://huggingface.co/black-forest-labs/flux-3-image-klein/resolve/main/ae.safetensors",
+   "gated": "HF_TOKEN"
+  },
+  "flux2-vae_small.safetensors": {
+   "dir": "vae",
+   "size": 249521340,
+   "sha256": "d8d52ba036475f5fb07c8b435e176d3d97ebfa82f0d1a1c317f9cc1e25bd013b",
+   "url": "https://huggingface.co/Comfy-Org/MOSS-Image/resolve/main/vae/flux2-vae_small.safetensors"
+  },
   "qwen_image_vae.safetensors": {
    "dir": "vae",
    "size": 253806246,
@@ -149,6 +181,24 @@
    "size": 2270384940,
    "sha256": "ed9cf1b6172f1a8c2921a9560c21109ff3239524563ced9dce6dcdef41e2f515",
    "url": "https://huggingface.co/Comfy-Org/stable-audio-3/resolve/main/checkpoints/stable_audio_3_small_sfx.safetensors"
+  },
+  "minimax_music3_dit_fp16.safetensors": {
+   "dir": "diffusion_models",
+   "size": 4914197682,
+   "sha256": "45494a2b6b69af115902ff28eaf54118d19067aa54da01000f3e3efce7ba0e34",
+   "url": "https://huggingface.co/Comfy-Org/MiniMax-Music-3/resolve/main/diffusion_models/minimax_music3_dit_fp16.safetensors"
+  },
+  "minimax_music3_text_encoder_pruned_int8_convrot.safetensors": {
+   "dir": "text_encoders",
+   "size": 9196611886,
+   "sha256": "010b7416d2336a08c711bc22ee65849c9623069ddb7d89bec011a75699e52014",
+   "url": "https://huggingface.co/Comfy-Org/MiniMax-Music-3/resolve/main/text_encoders/minimax_music3_text_encoder_pruned_int8_convrot.safetensors"
+  },
+  "minimax_music3_dav.safetensors": {
+   "dir": "vae",
+   "size": 216696128,
+   "sha256": "2a32155b769be01445fcc2a8663b910fc9e1751e18dc1c3ec528064512d9ef0c",
+   "url": "https://huggingface.co/Comfy-Org/MiniMax-Music-3/resolve/main/vae/minimax_music3_dav.safetensors"
   },
   "stable_audio_3_medium.safetensors": {
    "dir": "checkpoints",
@@ -244,6 +294,40 @@
    "sampler": "euler",
    "scheduler": "simple",
    "negative": "empty"
+  },
+  "moss": {
+   "version": 1,
+   "label": "MOSS-Image Base (5B, int8)",
+   "licence": "Apache-2.0: free for any commercial use (OpenMOSS-Team/MOSS-Image-Base; ComfyUI repack Comfy-Org/MOSS-Image)",
+   "_doc": "bake-off candidate 2026-11-10, not a default: settings from ComfyUI's image_moss_image_base_t2i template (25 steps, cfg 2.5, er_sde, skip layer 22 on the negative branch for the first half), prompt enhancer off",
+   "unet": "moss_image_base_int8_convrot.safetensors",
+   "clip": "qwen3.5_9b_w4a8_gptq.safetensors",
+   "clip_type": "moss_image",
+   "vae": "flux2-vae_small.safetensors",
+   "graph": "ksampler",
+   "latent": "EmptyFlux2LatentImage",
+   "steps": 25,
+   "cfg": 2.5,
+   "sampler": "er_sde",
+   "scheduler": "simple",
+   "negative": "empty",
+   "skip_layers": {"double": "", "single": "22", "start": 0, "end": 0.5}
+  },
+  "klein3": {
+   "version": 1,
+   "label": "FLUX 3 Image Klein (distilled, bf16)",
+   "licence": "FLUX Kommunity License: commercial use free while yearly revenue < US$5M, if every output is reviewed (or content-filtered) before it is shown and AI use is disclosed where the law asks (black-forest-labs/flux-3-image-klein, gated: the user accepts the terms on Hugging Face)",
+   "_doc": "bake-off candidate 2026-11-10, not a default: settings from ComfyUI's image_flux3_klein_distilled_t2i template (15 steps, cfg 1, er_sde), its prompt upsampler off. Files from the base repo (its model.safetensors and ae.safetensors have the same sha256 as the ComfyUI repack's klein bf16 and flux2-vae; the repack repo is gated apart); text encoder: Krea 2's Qwen3-VL-4B fp8 (same architecture as the template's qwen3vl_4b). Gated files: keydrop run HF_TOKEN -- imagegen.py fetch --models klein3",
+   "unet": "flux3-image-klein-bf16.safetensors",
+   "clip": "qwen3vl_4b_fp8_scaled.safetensors",
+   "clip_type": "flux3",
+   "vae": "flux2-vae.safetensors",
+   "graph": "ksampler",
+   "latent": "EmptyFlux2LatentImage",
+   "steps": 15,
+   "cfg": 1,
+   "sampler": "er_sde",
+   "scheduler": "simple"
   }
  },
  "recipes": {
@@ -278,6 +362,27 @@
    "fixed": {
     "52:25.ckpt_name": "stable_audio_3_small_sfx.safetensors",
     "57.filename_prefix": "audio/sfx"
+   }
+  },
+  "music3": {
+   "version": 1,
+   "label": "MiniMax Music 3",
+   "licence": "MiniMax-Music3 Community (upstream LICENSE; the ComfyUI repack's apache-2.0 tag does not override it): commercial use free while yearly revenue < $20M, BUT a product that uses it must show \"MiniMax-Music3\" in its interface, and output put in public must say it is machine-made (AUP 11)",
+   "_doc": "bake-off candidate 2026-11-10, not a default. caption: Global Metadata (genre, BPM, key, mood) then Arrangement; lyrics: section tags only, \"[Instrumental]\" for no vocals; seconds = max_duration (the model picks the length up to it)",
+   "template": "audio_minimax_music_3",
+   "files": [
+    "minimax_music3_dit_fp16.safetensors",
+    "minimax_music3_text_encoder_pruned_int8_convrot.safetensors",
+    "minimax_music3_dav.safetensors"
+   ],
+   "params": {
+    "caption": ["37:13", "caption"],
+    "lyrics": ["37:13", "lyrics"],
+    "seconds": ["37:13", "max_duration"],
+    "seed": ["37:38", "seed"]
+   },
+   "fixed": {
+    "35.filename_prefix": "audio/audio"
    }
   },
   "audio": {

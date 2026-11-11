@@ -55,6 +55,10 @@ def resolve(kind, name):
     choices = spec[1]["options"] if spec[0] == "COMBO" else spec[0]  # newer nodes: ["COMBO", {"options": [...]}]
     hits = [c for c in choices if c.replace("\\", "/").split("/")[-1] == name]
     if not hits:
+        lib = BASE / M["library"]
+        if any(lib.glob(f"*/{name}")):   # downloaded, but this ComfyUI does not search our library (one set up before Lazy Link)
+            sys.exit(f"batch: {name} is in {lib} but ComfyUI does not look there (its extra_model_paths.yaml); "
+                     "any imagegen.py fetch adds the folder, then the next job sees it")
         sys.exit(f"batch: {name} not found by ComfyUI ({node[0]}); run: imagegen.py fetch --models ...")
     return hits[0]
 
@@ -94,6 +98,12 @@ def graph(m, files, ask, prefix):
     if m.get("shift"):
         g["shift"] = {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": model, "shift": m["shift"]}}
         model = ["shift", 0]
+    if m.get("skip_layers"):  # MOSS-Image: skip a layer on the negative branch (its template's SkipLayerGuidanceDiTSimple)
+        sl = m["skip_layers"]
+        g["slg"] = {"class_type": "SkipLayerGuidanceDiTSimple", "inputs": {
+            "model": model, "double_layers": sl.get("double", ""), "single_layers": sl.get("single", ""),
+            "start_percent": sl.get("start", 0), "end_percent": sl.get("end", 1)}}
+        model = ["slg", 0]
     if m["graph"] == "ksampler":
         g["sample"] = {"class_type": "KSampler", "inputs": {
             "model": model, "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["latent", 0],
