@@ -307,7 +307,7 @@
    "version": 1,
    "label": "MOSS-Image Base (5B, int8)",
    "licence": "Apache-2.0: free for any commercial use (OpenMOSS-Team/MOSS-Image-Base; ComfyUI repack Comfy-Org/MOSS-Image)",
-   "_doc": "bake-off candidate 2026-11-10, not a default: settings from ComfyUI's image_moss_image_base_t2i template (25 steps, cfg 2.5, er_sde, skip layer 22 on the negative branch for the first half), prompt enhancer off",
+   "_doc": "bake-off candidate 2026-11-10, not a default (its files were removed from the PC the same day; imagegen.py fetch --models moss brings them back): settings from ComfyUI's image_moss_image_base_t2i template (25 steps, cfg 2.5, er_sde, skip layer 22 on the negative branch for the first half), prompt enhancer off",
    "unet": "moss_image_base_int8_convrot.safetensors",
    "clip": "qwen3.5_9b_w4a8_gptq.safetensors",
    "clip_type": "moss_image",

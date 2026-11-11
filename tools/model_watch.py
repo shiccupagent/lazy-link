@@ -5,7 +5,8 @@ Reads the most-trending models for each category in tools/model_watch.json (publ
 no token), leaves out what we already use or tested (imagegen/models.json, voice/*.json, "known"), copies of other
 models (quantized, adapters, merges, someone else's fine-tune), ones older than max_age_days or with fewer than
 min_likes, and licences that forbid selling (non-commercial, research-only). Writes DIR/latest.md (newest first in
-each category, with release date, likes, licence and a size guess) and DIR/<date>.md; DIR/seen.json remembers what an
+each category, with release date, likes, licence and a size guess), DIR/<date>.md and DIR/latest.json (every current
+candidate, for pages); DIR/seen.json remembers what an
 earlier report listed, so --all is needed to list those again. Exit 0 always unless Hugging Face cannot be reached.
 
     python3 tools/model_watch.py --out ~/model-watch"""
@@ -110,7 +111,7 @@ def main():
     seen = json.loads(seen_f.read_text()) if seen_f.exists() else {}
     known = known_repos(cfg)
     now = dt.datetime.now(dt.timezone.utc)
-    sections, new_seen, total = [], {}, 0
+    sections, new_seen, total, listing = [], {}, 0, []
     for cat, c in cfg["categories"].items():
         rows, ids = [], set()
         for tag in c["tags"]:
@@ -127,6 +128,8 @@ def main():
                 if ok == "no":
                     continue
                 ids.add(mid)
+                listing.append({"category": cat, "repo": mid, "released": made.date().isoformat(), "likes": m.get("likes") or 0,
+                                "licence": lic, "licence_ok": ok == "ok", "size": size_note(m, cfg["gpu_gb"])})
                 if mid in seen and not a.all:
                     continue
                 rows.append((made, mid, m.get("likes") or 0, ok, lic, size_note(m, cfg["gpu_gb"])))
@@ -148,6 +151,8 @@ def main():
     report = head + "\n" + body + "\n"
     (out / "latest.md").write_text(report, encoding="utf-8")
     (out / f"{now.date()}.md").write_text(report, encoding="utf-8")
+    # every current candidate (seen before or not), for pages that show the whole list
+    (out / "latest.json").write_text(json.dumps({"date": now.date().isoformat(), "candidates": listing}, indent=1), encoding="utf-8")
     seen.update(new_seen)
     seen_f.write_text(json.dumps(seen, indent=1, sort_keys=True))
     print(f"{total} new candidate(s); report in {out / 'latest.md'}")
