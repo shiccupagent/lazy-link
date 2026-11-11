@@ -18,6 +18,9 @@ the Mac sleeping never kills a job.
                                  {"what", "for"}, its asks.json prompts, $PCJOB_FOR; for dashboards)
   pcjob cheap                    the cheap-electricity hours (live prices if cheap_feed is set), and whether they're on now
   pcjob status ID | list | log ID | wait ID [--max S] [--queue-max S] | fetch ID DEST | cancel ID | rm ID
+  pcjob prune [--older-than 7d] [--legacy] [--yes]   list (with --yes: remove) finished jobs on the PC older than
+                                 that whose results this Mac fetched; --legacy also counts done/failed/timeout jobs
+                                 from before fetches were marked (2026-11-11) as fetched; never a cancelled or running job
   pcjob put FILE                 copy a big input onto the PC once (prints media:<name>)
   pcjob ping | info | wake | sleep | push-runner   (sleep refuses while someone is using the PC)
   pcjob quiet [HH:MM | YYYY-MM-DDTHH:MM | off]   leave the PC alone until then (an overnight hibernate): run waits,
@@ -343,6 +346,30 @@ def cmd_secret(a):
 def op_cancel(job_id):
     return (f"Set-Content '{ROOT}/jobs/{job_id}/cancel' x",
             "echo x > " + q(ROOT + "/jobs/" + job_id + "/cancel"))
+
+
+def op_mark_fetched(job_id):
+    """A 'fetched' file in the job folder: the Mac has the results, so pcjob prune may remove the job later."""
+    return (f"Set-Content '{ROOT}/jobs/{job_id}/fetched' (Get-Date -Format o)",
+            "date > " + q(ROOT + "/jobs/" + job_id + "/fetched"))
+
+
+def op_prune_list():
+    """One line per job folder: id, state, days since it last changed, bytes, fetched (1/0)."""
+    return (f"$now = Get-Date; Get-ChildItem '{ROOT}/jobs' -Directory | ForEach-Object {{ "
+            "$s = 'missing'; $f = Join-Path $_.FullName 'status.json'; "
+            "if (Test-Path $f) { try { $s = (Get-Content $f -Raw | ConvertFrom-Json).state } catch { $s = 'unreadable' }; "
+            "$t = (Get-Item $f).LastWriteTime } else { $t = $_.LastWriteTime }; "
+            "$b = (Get-ChildItem $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum; "
+            "if (-not $b) { $b = 0 }; "
+            "$fe = if (Test-Path (Join-Path $_.FullName 'fetched')) { 1 } else { 0 }; "
+            "\"$($_.Name)`t$s`t$([int]($now - $t).TotalDays)`t$b`t$fe\" }",
+            "cd " + q(ROOT + "/jobs") + " 2>/dev/null || exit 0; now=$(date +%s); for d in *; do [ -d \"$d\" ] || continue; "
+            "st=missing; t=$(stat -c %Y \"$d\" 2>/dev/null || stat -f %m \"$d\"); "
+            "if [ -f \"$d/status.json\" ]; then st=$(sed -n 's/.*\"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$d/status.json\" | head -n 1); "
+            "t=$(stat -c %Y \"$d/status.json\" 2>/dev/null || stat -f %m \"$d/status.json\"); fi; "
+            "b=$(du -sk \"$d\" | cut -f1); fe=0; [ -f \"$d/fetched\" ] && fe=1; "
+            "printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \"$d\" \"${st:-missing}\" $(( (now - t) / 86400 )) $((b * 1024)) $fe; done")
 
 
 def op_remove_job(job_id):
@@ -862,6 +889,7 @@ def cmd_fetch(a):
                     if m.name.startswith(("/", "..")) or "/../" in m.name or not (m.isfile() or m.isdir()):
                         sys.exit(f"pcjob: refusing odd path in results: {m.name}")
                 t.extractall(dest)
+    on_pc(op_mark_fetched, a.id, check=False)   # lets pcjob prune remove the job once it is old
     print(f"results in {dest}")
 
 
@@ -899,6 +927,41 @@ def cmd_rm(a):
         sys.exit("pcjob: job is running; cancel it first")
     on_pc(op_remove_job, a.id)
     print(f"removed {a.id} from the PC")
+
+
+MARKED_SINCE = "20261111"          # fetches have left a 'fetched' file since this day (job ids start YYYYMMDD)
+FINISHED = ("done", "failed", "timeout", "cancelled")
+
+
+def cmd_prune(a):
+    """Old finished jobs whose results the Mac fetched: list them, and remove them with --yes. A job is never
+    removed while it runs, and a cancelled job only when it was fetched (its frames may be all there is)."""
+    m = re.fullmatch(r"(\d+)d?", a.older_than.strip())
+    if not m:
+        sys.exit("pcjob: --older-than takes days, e.g. 7d")
+    days = int(m.group(1))
+    rows = []
+    for line in on_pc(op_prune_list, timeout=900).splitlines():
+        parts = line.strip().split("\t")
+        if len(parts) != 5 or not SAFE_ID.fullmatch(parts[0]):
+            continue
+        job, state, age, size, fetched = parts[0], parts[1], int(parts[2]), int(parts[3] or 0), parts[4] == "1"
+        legacy = a.legacy and job[:8] < MARKED_SINCE and state in ("done", "failed", "timeout")
+        if state in FINISHED and age >= days and (fetched or legacy):
+            rows.append((job, state, age, size, "fetched" if fetched else "legacy"))
+    total = sum(r[3] for r in rows)
+    for job, state, age, size, why in rows:
+        print(f"{size / 1e9:7.2f} GB  {state:9s} {age:3d} d  {why:7s}  {job}")
+    print(f"{len(rows)} job(s), {total / 1e9:.1f} GB" + ("" if a.yes else " would go (dry run; --yes removes them)"))
+    if not a.yes:
+        return
+    gone = 0
+    for job, *_ in rows:
+        if status(job)["state"] == "running":
+            continue
+        on_pc(op_remove_job, job, check=False)
+        gone += 1
+    print(f"removed {gone} job(s) from the PC")
 
 
 def put(path):
@@ -1085,6 +1148,9 @@ def main():
     w.add_argument("--queue-max", type=int, default=QUEUE_MAX, help="seconds of waiting in the queue first")
     f = sub.add_parser("fetch"); f.add_argument("id"); f.add_argument("dest")
     sub.add_parser("put").add_argument("file")
+    pu = sub.add_parser("prune", help="list (--yes: remove) old finished jobs whose results the Mac fetched")
+    pu.add_argument("--older-than", default="7d"); pu.add_argument("--legacy", action="store_true")
+    pu.add_argument("--yes", action="store_true")
     se = sub.add_parser("secret", help="put/drop/has a secret for one job; the value comes from the environment variable NAME")
     se.add_argument("action", choices=["put", "drop", "has"]); se.add_argument("name")
     sub.add_parser("quiet").add_argument("until", nargs="?", help="HH:MM (next one), YYYY-MM-DDTHH:MM, or off")
@@ -1125,7 +1191,7 @@ def main():
                   + ("; every job waits for them" if CFG.get("cheap_only") else "; jobs wait only with --cheap or LAZY_CHEAP=1"))
     else:
         {"run": cmd_run, "status": cmd_status, "list": cmd_list, "log": cmd_log, "wait": cmd_wait,
-         "fetch": cmd_fetch, "cancel": cmd_cancel, "rm": cmd_rm, "sleep": cmd_sleep, "put": cmd_put, "push-runner": cmd_push_runner,
+         "fetch": cmd_fetch, "cancel": cmd_cancel, "rm": cmd_rm, "prune": cmd_prune, "sleep": cmd_sleep, "put": cmd_put, "push-runner": cmd_push_runner,
          "pair": cmd_pair, "info": cmd_info, "quiet": cmd_quiet, "lane": cmd_lane, "secret": cmd_secret}[a.cmd](a)
 
 
