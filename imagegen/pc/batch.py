@@ -171,12 +171,39 @@ def upload(path):
         return json.loads(r.read())["name"]
 
 
+SECTIONS = ["Instrumental", "Chorus", "Instrumental", "Solo", "Bridge", "Chorus"]
+
+
+def music_ask(params):
+    """A recipe with "fit": "music" (MiniMax Music 3 ends songs when it likes: 11-22 s for a 40 s ask in the
+    2026-11-10 bake-off). Ask for more than needed so fit_music.py can cut an exact, loop-ready length: section tags
+    sized to the length (about 9 s each) and a length line in the caption took 6 of 6 test asks to 25-75 s for
+    20-60 s asks, where "[Instrumental]" alone made 16 s. Returns (seconds, bpm, beats per bar) for the fit."""
+    import re
+    target = float(params["seconds"])
+    plan = min(330.0, target * 1.25 + 6)
+    params["seconds"] = round(min(360.0, target * 1.5 + 10), 2)   # max_duration: the model may stop before it
+    n = max(3, min(36, round(plan / 9) + 1))
+    tags = ["Intro"] + [SECTIONS[i % len(SECTIONS)] for i in range(n - 2)] + ["Outro"]
+    if params.get("lyrics", "[Instrumental]").strip() in ("", "[Instrumental]"):
+        params["lyrics"] = "\n".join(f"[{t}]" for t in tags)
+    key = "prompt" if "prompt" in params else "caption"
+    cap = params.get(key, "")
+    params[key] = (cap.rstrip() + f" Instrumental piece about {round(plan)} seconds long: "
+                   + ", then ".join(t.lower() for t in tags) + ", each section a full phrase.")
+    bpm = re.search(r"(\d{2,3}(?:\.\d+)?)\s*BPM", cap, re.I)
+    meter = re.search(r"\b([2-7])/[48]\b", cap)
+    return target, float(bpm.group(1)) if bpm else None, int(meter.group(1)) if meter else 4
+
+
 def run_recipe(key, timings):
     r = M["recipes"][key]
     base = json.load(open(Path("recipes") / f"{r['template']}.api.json", encoding="utf-8"))
     for i, ask in enumerate(ASKS):
         g = json.loads(json.dumps(base))
-        for name, value in {**r.get("fixed", {}), **ask.get("params", {})}.items():
+        params = dict(ask.get("params", {}))
+        fit = music_ask(params) if r.get("fit") == "music" and "seconds" in params else None
+        for name, value in {**r.get("fixed", {}), **params}.items():
             node, inp = r["params"][name] if name in r["params"] else name.split(".", 1)
             g[node]["inputs"][inp] = value
         if "image" in ask and "start_image" in r:   # video: the picture becomes the first frame (the template leaves it unwired)
@@ -205,8 +232,23 @@ def run_recipe(key, timings):
             ext = Path(f["filename"]).suffix
             dest = OUT / f"{ask['name']}__{key}{'' if n == 0 else '-' + str(n)}{ext}"
             shutil.move(str(SCRATCH / "out" / f.get("subfolder", "") / f["filename"]), dest)
+        report = None
+        if fit and files:   # exact length, loop-ready: OUT/<name>__<key>.mp3 (the model's own take: -raw, with "keep_raw")
+            import fit_music
+            t1 = time.time()
+            src = OUT / f"{ask['name']}__{key}{Path(sorted(files, key=lambda f: f['filename'])[0]['filename']).suffix}"
+            raw = src.with_name(src.stem + "-raw" + src.suffix)
+            src.replace(raw)
+            out, report = fit_music.fit(fit_music.load(raw), fit[0], fit[1], fit[2])
+            report["check"] = fit_music.seam_check(out, fit[1])
+            fit_music.save(out, OUT / f"{ask['name']}__{key}.mp3")
+            if not ask.get("keep_raw"):
+                raw.unlink()
+            secs += time.time() - t1
         row = {"model": key, "ask": ask["name"], "seconds": round(secs, 2), "cold": i == 0,
                "files": len(files) or len(list(OUT.glob(f"{ask['name']}__{key}*"))), "vram_mb": vram_used_mb()}
+        if report:
+            row["fit"] = report
         timings["runs"].append(row)
         print(json.dumps(row), flush=True)
 

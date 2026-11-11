@@ -373,10 +373,11 @@
    }
   },
   "music3": {
-   "version": 2,
+   "version": 3,
    "label": "MiniMax Music 3",
    "licence": "MiniMax-Music3 Community (upstream LICENSE; the ComfyUI repack's apache-2.0 tag does not override it): commercial use free while yearly revenue < $20M, BUT a product that uses it must show \"MiniMax-Music3\" in its interface, and output put in public must say it is machine-made (AUP 11)",
-   "_doc": "the pick for game music since 2026-11-10 (owner, after the bake-off). Version 2: takes the same prompt/seconds/seed asks as audio (prompt = caption, lyrics \"[Instrumental]\" unless an ask sets them), so refresh-kit can switch a kind to it. caption: Global Metadata (genre, BPM, key, mood) then Arrangement; lyrics: section tags only, \"[Instrumental]\" for no vocals; seconds = max_duration (the model picks the length up to it)",
+   "_doc": "the pick for game music since 2026-11-10 (owner, after the bake-off). Takes the same prompt/seconds/seed asks as audio (prompt = caption: Global Metadata with genre, BPM, time signature, key, mood, then Arrangement), so refresh-kit can switch a kind to it. Version 3 (2026-11-11): the model ends songs when it likes (11-22 s for 40 s asks), so \"fit\": \"music\" makes every take EXACTLY `seconds` long and loop-ready: pc/batch.py music_ask asks for more (section tags sized to the length, a length line in the caption, max_duration 1.5x + 10 s), then pc/fit_music.py keeps the body (no silence, soft intro or fade-out), finds where it best repeats near `seconds` (rhythm + harmony, on the caption's beat when it can hear one), nudges the tempo at most 5% (pitch kept) and crossfades the overrun into the start. A take shorter than that repeats whole phrases, never silence. timings.json \"fit\" reports tempo change, seam score and a seam check per take; \"keep_raw\": true on an ask keeps the model's own take as -raw. Lyrics stay \"[Instrumental]\" unless an ask sets them.",
+   "fit": "music",
    "template": "audio_minimax_music_3",
    "files": [
     "minimax_music3_dit_fp16.safetensors",

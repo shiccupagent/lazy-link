@@ -207,6 +207,8 @@ def make(key, asks, out, timeout):
         json.dump(asks, open(a, "w"), indent=1)
         files = [HERE / "models.json", HERE / "pc" / "batch.py", a,
                  (HERE / "recipes" / f"{r['template']}.api.json", f"recipes/{r['template']}.api.json")]
+        if r.get("fit") == "music":   # exact length and loop-ready on the PC (pc/fit_music.py)
+            files.append(HERE / "pc" / "fit_music.py")
         files += [(base / x["image"], f"inputs/{x['image']}") for x in asks if "image" in x]
         send(files, RUN_PS1, {"recipe": key}, f"imagegen-{key}", out, timeout, sh=RUN_SH, warm=True)
     t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))

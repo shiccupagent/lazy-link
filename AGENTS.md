@@ -11,7 +11,7 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./check.py [--setup]`: what the PC has, what to fix, which models fit (only reads the PC).
 - `./imagegen/imagegen.py one "prompt" --out DIR [--model klein3|krea2|klein|zimage] (default klein3 = FLUX 3 klein) [--size WxH] [--cutout]`
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
-- `./imagegen/imagegen.py make audio|sfx|music3|mesh|maps ASKS.json --out DIR`: sounds/music (`audio` = Stable Audio 3 medium, the pick for game sounds and music; `sfx` = the small SFX model; `music3` = MiniMax Music 3, credit rule in models.json), picture to 3D, or picture to normal + depth maps (MoGe-2).
+- `./imagegen/imagegen.py make audio|sfx|music3|mesh|maps ASKS.json --out DIR`: sounds/music (`audio` = Stable Audio 3 medium, the pick for game sounds and music; `sfx` = the small SFX model; `music3` = MiniMax Music 3, the owner's pick for game music: every take comes back exactly `seconds` long and loop-ready, see models.json; credit rule in models.json), picture to 3D, or picture to normal + depth maps (MoGe-2).
   mesh params: `faces` (triangles after decimation; 4000-5000 for phone props, the normal map keeps the detail),
   `texture` (map size in px, 256-4096; a number, never true/false), `seed`. `make` refuses asks that don't fit (models.json "limits").
 - `./imagegen/imagegen.py make video ASKS.json --out DIR`: short clips from a prompt, or from a picture as the first frame (Wan 2.2
@@ -54,6 +54,9 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
   are not ours, not copies, and not barred from commercial use; settings and ruled-out licences in tools/model_watch.json. Candidates for a side-by-side test, not picks.
   Voice recordings are personal: never commit, upload or paste them; they stay in voice/recordings and voice/refs.
 - `./examples/try.py [spin|pictures|sounds|room|3d|all]`: end-to-end examples, each ending in a file to open (out/try/).
+- `./mac/pcjob prune [--older-than 7d] [--legacy] [--yes]`: lists (removes, with `--yes`) finished jobs on the PC older than that
+  whose results this Mac fetched (`fetch` leaves a `fetched` mark); `--legacy` also counts done/failed/timeout jobs from before
+  2026-11-11. Never a running or cancelled job: a cancelled job's frames may be the only copy (`pcjob rm ID` once its owner agrees).
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap` (`cancel` on a queued job ends it
   within seconds, without starting it). `run` and `wait` ride out a PC that stops answering for up to 10 min
   (`LAZY_LINK_WAIT_GRACE` s) before giving up; the job keeps running on the PC either way.

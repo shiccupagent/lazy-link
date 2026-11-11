@@ -258,6 +258,11 @@ Hibernating the PC overnight, or playing a game on it? `./mac/pcjob quiet 09:15`
 with exit code 75 ("try later") without touching the network, so not even a quick check wakes the PC.
 `./mac/pcjob quiet` shows the hold, `./mac/pcjob quiet off` lifts it early.
 
+## Free up the PC's job folder (optional)
+Every job leaves its folder on the PC. `./mac/pcjob prune` lists the finished ones over a week old whose results the
+Mac has already fetched, with their size; `./mac/pcjob prune --yes` removes them (`--older-than 3d` to go further back).
+It never touches a running job or a cancelled one, whose half-made results may be the only copy.
+
 Installed before 2026-10-30? Re-run Setup-PC; it renames `render` to `lazylink` and keeps your models. Then pair again from the Mac.
 
 ## Safety, in plain words
@@ -297,7 +302,7 @@ More: [docs/FAQ.md](docs/FAQ.md) (for example, how to let your AI organise your 
 | Images, quick / any use | FLUX.2 klein 4B, Z-Image Turbo | Apache-2.0 |
 | Transparent cutouts | BiRefNet HR-matting (soft edges: hair, glass, smoke) | MIT |
 | Sounds and music | Stable Audio 3 medium (`make audio`; small SFX is `make sfx`) | Stability AI Community: free while yearly revenue < $1M |
-| Music (option) | MiniMax Music 3 (`make music3`) | MiniMax-Music3 Community: free while yearly revenue < $20M, but your product must show "MiniMax-Music3" and music you publish must say it's AI-made |
+| Music | MiniMax Music 3 (`make music3`: every take exactly the length asked for, loop-ready) | MiniMax-Music3 Community: free while yearly revenue < $20M, but your product must show "MiniMax-Music3" and music you publish must say it's AI-made |
 | Voice lines from a description | Ming-3.0-TTS 0.5B (`voice/describe.py`) | MIT |
 | Picture to 3D | Pixal3D + TRELLIS.2 | MIT |
 | Video | Wan 2.2 TI2V 5B | Apache-2.0 |
