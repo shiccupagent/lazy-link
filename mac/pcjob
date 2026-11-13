@@ -1008,13 +1008,22 @@ def in_use():
 
 
 def release(woke):
-    """After a job: put the PC back to sleep only if we woke it and nobody is using it."""
+    """After a job: put the PC back to sleep only if we woke it, nobody is using it and no other job is queued or
+    running. Never fails: the job itself already finished, so a PC left on is a note, not an error (2026-11-13: a
+    queued job from another caller made the put-down exit 1 and the caller treated its finished batch as failed)."""
     if not woke:
         return
-    if in_use():
-        print("leaving the PC on: someone is signed in and using it")
-        return
-    cmd_sleep(argparse.Namespace(hibernate=False, sleep=False, nobody_there=False))   # config.json "rest" picks how
+    try:
+        if in_use():
+            print("leaving the PC on: someone is signed in and using it")
+            return
+        busy = on_pc(op_busy_jobs)
+        if busy != "0":
+            print(f"leaving the PC on: {busy} job(s) queued or running")
+            return
+        cmd_sleep(argparse.Namespace(hibernate=False, sleep=False, nobody_there=False))   # config.json "rest" picks how
+    except SystemExit as err:   # a job queued since the check, or a PC that stopped answering
+        print(f"leaving the PC on: {err.code}", file=sys.stderr)
 
 
 def rest_hibernates(a):
