@@ -29,6 +29,9 @@ Repaint part of a picture: "init": "in.png", "mask": "mask.png" (white = repaint
 found beside ASKS.json (or by full path) and sent with the job; pixels outside the mask come back exactly.
 Each result is DIR/<name>__<model>.png (+ <name>__<model>-cutout.png with a transparent
 background when "cutout" is true), plus DIR/timings.json and DIR/comfy.log.
+A cutout that keeps under models.json cutout.min_cover of the picture (an empty mask) is tried once more with the
+fallback model; if still empty there is no -cutout.png, its timings.json row says "cutout": {"status": "failed"},
+timings.json "cutout_failed" lists it, and this prints CUTOUT FAILED (status "retried" = the fallback made it).
 """
 import argparse, importlib.machinery, importlib.util, json, os, shutil, sys, tempfile, time
 from argparse import Namespace
@@ -137,8 +140,13 @@ def run(asks, keys, out, timeout, inputs=()):
     t = json.loads((out / "timings.json").read_text(encoding="utf-8-sig"))
     print(f"ComfyUI start {t['comfy_boot_s']} s ({t.get('comfy', 'own')})")
     for r in t["runs"]:
-        print(f"{r['model']:7} {r['ask']:24} {r['seconds']:6.1f} s{'  (first: loads the model)' if r['cold'] else ''}")
+        cut = r.get("cutout", {}).get("status")
+        note = {"retried": "  cutout: first try empty, the fallback model made it", "failed": "  CUTOUT FAILED"}.get(cut, "")
+        print(f"{r['model']:7} {r['ask']:24} {r['seconds']:6.1f} s{'  (first: loads the model)' if r['cold'] else ''}{note}")
     print(f"images in {out}")
+    if t.get("cutout_failed"):   # loud: these takes have the picture but no cutout file
+        print(f"imagegen: {len(t['cutout_failed'])} cutout(s) FAILED (empty mask, also after a retry): no file for "
+              f"{', '.join(t['cutout_failed'])}; timings.json runs[].cutout.status = \"failed\"", file=sys.stderr)
 
 
 def with_pictures(asks_file):

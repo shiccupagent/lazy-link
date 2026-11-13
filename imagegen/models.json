@@ -45,7 +45,7 @@
   "_doc": "asks with \"cutout\": true also get <name>__<model>-cutout.png (transparent background). BiRefNet HR-matting since 2026-11-10 (owner pick after the bake-off): the same network, size and speed as BiRefNet, trained for soft edges, so hair, fur, glass and smoke keep partial transparency. Version 1 was plain BiRefNet (birefnet.safetensors, still under files).",
   "model": "birefnet_hr_matting.safetensors",
   "version": 2,
-  "snap": [6, 240],
+  "snap": [6, 240], "min_cover": 0.02, "fallback": "birefnet.safetensors", "_check_doc": "after the snap a cutout must keep at least min_cover of the picture; under it, one retry with the fallback model on the finished picture; still under it = failed: no -cutout.png, the row in timings.json says cutout.status \"failed\" and timings.json lists it under cutout_failed (2026-11-13: HR-matting now and then returns an empty mask for a plain object on a plain background, dark blocks most).",
   "_snap_doc": "alpha at or under 6 becomes fully clear, at or over 240 fully solid (pc/batch.py snap_alpha): HR-matting leaves solid things at 240-254, which shows a faint ghost of the background in a game. Soft edges (fur, glass, smoke) sit between and are kept.",
   "licence": "MIT: any commercial use (ZhengPeng7/BiRefNet_HR-matting)"
  },

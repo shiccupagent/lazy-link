@@ -10,6 +10,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 ## Commands
 - `./check.py [--setup]`: what the PC has, what to fix, which models fit (only reads the PC).
 - `./imagegen/imagegen.py one "prompt" --out DIR [--model klein3|krea2|klein|zimage] (default klein3 = FLUX 3 klein) [--size WxH] [--cutout]`
+  An empty cutout (mask under 2% of the picture) is retried once with plain BiRefNet; still empty = no `-cutout.png`,
+  `"cutout": {"status": "failed"}` on its timings.json row, listed in timings.json `cutout_failed`, and a CUTOUT FAILED line.
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
 - `./imagegen/imagegen.py make audio|sfx|music3|mesh|maps ASKS.json --out DIR`: sounds/music (`audio` = Stable Audio 3 medium, the pick for game sounds and music; `sfx` = the small SFX model; `music3` = MiniMax Music 3, the owner's pick for game music: every take comes back exactly `seconds` long and loop-ready, see models.json; credit rule in models.json), picture to 3D, or picture to normal + depth maps (MoGe-2).
   mesh params: `faces` (triangles after decimation; 4000-5000 for phone props, the normal map keeps the detail),

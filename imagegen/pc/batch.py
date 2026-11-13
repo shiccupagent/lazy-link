@@ -50,6 +50,65 @@ def snap_png(path):
     im.putalpha(Image.fromarray(snap_alpha(im.getchannel("A"))))
     im.save(path)
 
+
+def cutout_cover(path):
+    """Share of the picture a cutout keeps (alpha > 0), 0..1."""
+    import numpy as np
+    from PIL import Image
+    return float((np.asarray(Image.open(path).getchannel("A")) > 0).mean())
+
+
+def cutout_verdict(first, retry, min_cover):
+    """What to do with a cutout. first/retry: cover of each try (retry None = no second try was possible).
+    The matting model now and then returns an empty mask for a plain object on a plain background
+    (2026-11-13: 8 of 330 icons, dark blocks most). An empty cutout must never ship as a finished take."""
+    if first >= min_cover:
+        return "ok"
+    if retry is not None and retry >= min_cover:
+        return "retried"
+    return "failed"
+
+
+def retry_cutout(picture, dst, model_file, prefix):
+    """Second try for an empty cutout: the fallback BiRefNet on the finished picture -> dst (snapped)."""
+    g = {"img": {"class_type": "LoadImage", "inputs": {"image": upload(picture)}},
+         "bgm": {"class_type": "LoadBackgroundRemovalModel", "inputs": {"bg_removal_name": model_file}},
+         "fg": {"class_type": "RemoveBackground", "inputs": {"bg_removal_model": ["bgm", 0], "image": ["img", 0]}},
+         "bgmask": {"class_type": "InvertMask", "inputs": {"mask": ["fg", 0]}},
+         "rgba": {"class_type": "JoinImageWithAlpha", "inputs": {"image": ["img", 0], "alpha": ["bgmask", 0]}},
+         "save": {"class_type": "SaveImage", "inputs": {"images": ["rgba", 0], "filename_prefix": prefix + "-recut"}}}
+    _, imgs = run_one(g)
+    img = imgs[0]
+    shutil.move(str(SCRATCH / "out" / img.get("subfolder", "") / img["filename"]), dst)
+    snap_png(dst)
+
+
+def check_cutout(picture, cut, files, prefix):
+    """Cover check after the snap; one retry with the fallback model; a failed cutout file is removed (the raw picture
+    stays) so no blank ships. Returns the row's "cutout" field: {"status": ok|retried|failed, "cover": ...}."""
+    c = M["cutout"]
+    min_cover = c.get("min_cover", 0.02)
+    first = cutout_cover(cut)
+    if first >= min_cover:
+        return {"status": "ok", "cover": round(first, 4)}
+    retry = None
+    if files.get("cutout_fallback"):
+        tmp = cut.with_name(cut.stem + "-retry.png")
+        retry_cutout(picture, tmp, files["cutout_fallback"], prefix)
+        retry = cutout_cover(tmp)
+        if retry > first:
+            shutil.move(str(tmp), cut)
+        else:
+            tmp.unlink()
+    verdict = cutout_verdict(first, retry, min_cover)
+    out = {"status": verdict, "cover": round(max(first, retry or 0), 4), "first_cover": round(first, 4)}
+    if verdict == "failed":
+        cut.unlink()
+        print(f"batch: CUTOUT FAILED {cut.name}: the mask keeps {out['cover']:.2%} of the picture "
+              f"(under {min_cover:.0%}{', after a retry with ' + c['fallback'] if retry is not None else ''}); "
+              f"no cutout file, {picture.name} kept", file=sys.stderr, flush=True)
+    return out
+
 def api(path, body=None, timeout=30):
     req = urllib.request.Request(URL + path, data=None if body is None else json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json"})
@@ -474,6 +533,10 @@ def main():
             files = {k: resolve(k, m[k]) for k in ("unet", "clip", "vae")}
             if any(a.get("cutout") for a in ASKS):
                 files["cutout"] = resolve("cutout", M["cutout"]["model"])
+                try:   # the retry model for an empty cutout; without it an empty cutout fails at once
+                    files["cutout_fallback"] = resolve("cutout", M["cutout"]["fallback"]) if M["cutout"].get("fallback") else None
+                except SystemExit:
+                    files["cutout_fallback"] = None
             for i, ask in enumerate(ASKS):
                 prefix = f"{ask['name']}__{key}"
                 secs, imgs = run_one(graph(m, files, ask, prefix))
@@ -484,6 +547,10 @@ def main():
                         snap_png(OUT / f"{prefix}{tag}.png")
                 row = {"model": key, "ask": ask["name"], "seconds": round(secs, 2), "cold": i == 0 and not warm_model,
                        "w": ask.get("w", 1024), "h": ask.get("h", 1024), "vram_mb": vram_used_mb()}
+                if ask.get("cutout") and (OUT / f"{prefix}-cutout.png").exists():
+                    row["cutout"] = check_cutout(OUT / f"{prefix}.png", OUT / f"{prefix}-cutout.png", files, prefix)
+                    if row["cutout"]["status"] == "failed":
+                        timings.setdefault("cutout_failed", []).append(f"{prefix}-cutout.png")
                 timings["runs"].append(row)
                 print(json.dumps(row), flush=True)
             set_loaded(key)
