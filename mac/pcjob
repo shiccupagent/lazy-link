@@ -71,6 +71,7 @@ SSH_USER = default_user(OS_NAME)
 q = shlex.quote
 SAFE_ID = re.compile(r"[A-Za-z0-9._-]{1,120}")
 QUIET = Path(os.environ.get("LAZY_LINK_QUIET", REPO / ".quiet-until"))   # pcjob quiet: one local time, no ssh before it
+WOKE = REPO / ".woke-at"   # epoch seconds of the last time pcjob woke the PC; a keeper reads it without touching the PC
 LANES = {"test": 900}   # lane -> the most seconds one of its jobs may run (pc/runner.ps1 has the same table)
 QUEUE_MAX = 3 * 3600   # seconds a job may wait in the PC's queue (one job at a time) before wait gives up
 # seconds of unanswered status checks a wait rides out before it gives up: one ssh that timed out used to end the
@@ -204,6 +205,10 @@ def wake(max_s=120):
         magic_packet()
         if reachable():
             print("PC is awake")
+            try:
+                WOKE.write_text(f"{int(time.time())}\n")
+            except OSError:
+                pass
             return True
         time.sleep(5)
     sys.exit(f"pcjob: PC did not wake within {max_s}s (works from sleep; not from a full shutdown with Fast Startup on)")
