@@ -373,6 +373,7 @@
    }
   },
   "music3": {
+    "ask_s": 300, "_ask_s_doc": "about how long one take takes on a 3090 (2026-11-14: ~295 s); the default job timeout grows with it",
    "version": 3,
    "label": "MiniMax Music 3",
    "licence": "MiniMax-Music3 Community (upstream LICENSE; the ComfyUI repack's apache-2.0 tag does not override it): commercial use free while yearly revenue < $20M, BUT a product that uses it must show \"MiniMax-Music3\" in its interface, and output put in public must say it is machine-made (AUP 11)",
@@ -498,6 +499,7 @@
    "_doc": "hand-written workflow, not converted: ComfyUI has no template for it, so recipes/moge_maps.api.json is edited by hand. <name>__maps.png = normal map (OpenGL, +Y up, the glTF/three.js convention), <name>__maps-1.png = depth (white = near). MoGe estimates camera-space geometry, so a flat texture shot head-on gives a usable surface normal map; bumpmaps.py strips any overall tilt."
   },
   "video": {
+    "ask_s": 240, "_ask_s_doc": "about how long one ask takes on a 3090 (a 3 s clip at 768 px); the default job timeout grows with it",
    "version": 1,
    "label": "Wan 2.2 TI2V 5B (text or picture to video, 1280x704, 24 fps)",
    "licence": "Apache-2.0: any commercial use (Wan-AI/Wan2.2-TI2V-5B; ComfyUI repack Comfy-Org/Wan-2.2)",

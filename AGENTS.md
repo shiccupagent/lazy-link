@@ -14,6 +14,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
   `"cutout": {"status": "failed"}` on its timings.json row, listed in timings.json `cutout_failed`, and a CUTOUT FAILED line.
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
 - `./imagegen/imagegen.py make audio|sfx|music3|mesh|maps ASKS.json --out DIR`: sounds/music (`audio` = Stable Audio 3 medium, the pick for game sounds and music; `sfx` = the small SFX model; `music3` = MiniMax Music 3, the owner's pick for game music: every take comes back exactly `seconds` long and loop-ready, see models.json; credit rule in models.json), picture to 3D, or picture to normal + depth maps (MoGe-2).
+  Every recipe input goes inside `"params"` (a `"prompt"` beside `"name"` is refused, not ignored); two asks with the same
+  params are refused too (give each take its own `seed`). The default `--timeout` grows with the batch (models.json `ask_s`).
   mesh params: `faces` (triangles after decimation; 4000-5000 for phone props, the normal map keeps the detail),
   `texture` (map size in px, 256-4096; a number, never true/false), `seed`. `make` refuses asks that don't fit (models.json "limits").
 - `./imagegen/imagegen.py make video ASKS.json --out DIR`: short clips from a prompt, or from a picture as the first frame (Wan 2.2

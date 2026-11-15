@@ -14,7 +14,7 @@ want.json can also be {"recipe": KEY}: each ask then fills a converted template 
 inputs named in models.json "recipes") and every file it saves (audio, 3D model, image) comes back as
 <ask>__<KEY>.<ext>. {"convert": [template, ...]} turns ComfyUI templates into those .api.json files.
 """
-import json, mimetypes, os, shutil, subprocess, sys, time, urllib.error, urllib.request, uuid
+import json, mimetypes, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request, uuid
 from pathlib import Path
 
 M = json.load(open("models.json", encoding="utf-8"))
@@ -30,6 +30,8 @@ URL = f"http://127.0.0.1:{PORT}"
 SCRATCH = BASE / "tmp" / "comfy"
 LOADED = SCRATCH / "loaded.json"   # warm ComfyUI only: which model the last job left loaded
 WARM = os.environ.get("LAZY_WARM") if os.environ.get("LAZY_WARM_URL") == URL else None
+JOB = "job-" + uuid.uuid4().hex[:8]   # this job's own folder under ComfyUI's output: no two jobs ever share a file name
+PROMPTS = iter(range(1, 1 << 30))     # and each prompt its own folder inside it (see own_prefixes)
 
 
 
@@ -197,7 +199,50 @@ def graph(m, files, ask, prefix):
     return g
 
 
+def sub_parts(f):
+    """A saved file's subfolder below this prompt's own folder, as parts (ComfyUI on Windows reports a\\b)."""
+    parts = [x for x in re.split(r"[\\/]", f.get("subfolder", "")) if x]
+    return parts[1:] if parts[:1] and parts[0].startswith(JOB + "-") else parts
+
+
+def own_prefixes(g):
+    """Every SaveImage/SaveAudio/... in the graph saves under a folder of its own: JOB-<n>/ per prompt. Two prompts
+    that are otherwise the same graph then still differ, so ComfyUI saves a new file instead of handing back the
+    first one's cached output (which batch.py had already moved away: FileNotFoundError, 2026-11-14), and a file
+    left by an earlier, killed job can never be taken for this one's."""
+    n = next(PROMPTS)
+    for node in g.values():
+        fp = node.get("inputs", {}).get("filename_prefix")
+        if isinstance(fp, str) and not fp.startswith(JOB + "-"):
+            node["inputs"]["filename_prefix"] = f"{JOB}-{n}/{fp}"
+    return g
+
+
+def clear_leftovers():
+    """Before this job's first prompt: stop anything still queued in ComfyUI and empty its output folder. The runner
+    restarts the warm server after a job that did not finish, but the files a killed job saved stay in the output
+    folder (2026-11-14: 6 found). Only one job uses ComfyUI at a time, so anything there now is an orphan."""
+    q = api("/queue")
+    left = len(q.get("queue_running", [])) + len(q.get("queue_pending", []))
+    if left:
+        api("/queue", {"clear": True})
+        api("/interrupt", {})
+        t0 = time.time()
+        while api("/queue").get("queue_running"):
+            if time.time() - t0 > 180:
+                sys.exit("batch: ComfyUI kept running an earlier job's prompt 3 min after an interrupt; giving up")
+            time.sleep(1)
+        print(f"batch: stopped {left} prompt(s) an earlier job left in ComfyUI", flush=True)
+    out = SCRATCH / "out"
+    stale = [p for p in out.iterdir()] if out.exists() else []
+    for p in stale:
+        shutil.rmtree(p) if p.is_dir() else p.unlink()
+    if stale:
+        print(f"batch: removed {len(stale)} leftover output(s) from an earlier job", flush=True)
+
+
 def run_one(g):
+    own_prefixes(g)
     t0 = time.time()
     try:
         pid = api("/prompt", {"prompt": g, "client_id": "imagegen"})["prompt_id"]
@@ -280,7 +325,7 @@ def run_recipe(key, timings):
             g["save_cut"] = {"class_type": "SaveImage", "inputs": {"images": ["rgba", 0], "filename_prefix": "cutframes/f"}}
         secs, files = run_one(g)
         if "frames" in r:   # a video recipe: loop and cutout are done here, after ComfyUI
-            cut = sorted((f for f in files if f.get("subfolder", "").startswith("cutframes")), key=lambda f: f["filename"])
+            cut = sorted((f for f in files if sub_parts(f)[:1] == ["cutframes"]), key=lambda f: f["filename"])
             files = [f for f in files if f not in cut]
             t1 = time.time()
             finish_video(ask, key, [SCRATCH / "out" / f.get("subfolder", "") / f["filename"] for f in files],
@@ -513,6 +558,7 @@ def main():
         log = open(OUT / "comfy.log", "a")
         comfy = start_own(log)
     try:
+        clear_leftovers()
         boot = time.time() - t_start
         print(f"ComfyUI up in {boot:.1f} s, VRAM in use {vram_used_mb()} MB", flush=True)
         timings = {"comfy_boot_s": round(boot, 1), "comfy": WARM or "own", "runs": []}

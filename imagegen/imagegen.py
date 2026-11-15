@@ -130,9 +130,21 @@ def _send(pc, files, ps1, want, name, out, timeout, sh, warm):
     pc.cmd_rm(Namespace(id=job_id))
 
 
+def job_timeout(timeout, n, per_ask, what):
+    """--timeout, or one that grows with the batch: an hour, or 600 s + 1.25 x the expected time, whichever is longer
+    (2026-11-14: 36 music takes at ~295 s each hit the flat one-hour default after 12)."""
+    if timeout:
+        return timeout
+    t = max(3600, 600 + round(1.25 * n * per_ask))
+    if t > 3600:
+        print(f"imagegen: timeout {t} s ({n} {what} at about {per_ask} s each; --timeout to change)")
+    return t
+
+
 def run(asks, keys, out, timeout, inputs=()):
     """inputs: local pictures the asks name in "init" / "mask" (sent beside asks.json)."""
     out = Path(out).expanduser().resolve()
+    timeout = job_timeout(timeout, len(asks) * len(keys), MODELS.get("picture_s", 90), "pictures")
     with tempfile.TemporaryDirectory() as td:
         a = Path(td) / "asks.json"
         json.dump(asks, open(a, "w"), indent=1)
@@ -168,14 +180,27 @@ def with_pictures(asks_file):
     return asks, [(src, dest) for dest, src in sent.items()]
 
 
+ASK_KEYS = {"name", "params", "image", "loop", "cutout", "frames"}   # an ask for make; recipe inputs go in "params"
+
+
 def ask_errors(key, r, asks):
     """Every way an ask's params do not fit the recipe, before anything goes to the PC. A param's kind (number or
     text) comes from the recipe's own template input; models.json "limits" adds ranges. true/false is never a recipe
     value: SCZ sent mesh "texture": true (meant "textured"), Python read it as 1, and 86 props came back with a 1x1
     black colour map (2026-11-04)."""
     tmpl = json.loads((HERE / "recipes" / f"{r['template']}.api.json").read_text(encoding="utf-8"))
-    errs = []
+    errs, seen = [], {}
     for x in asks:
+        # a param written beside "name" instead of inside "params" was silently dropped: every take then ran the
+        # template's own prompt and seed, ComfyUI handed back its cached first take, and the job died (2026-11-14)
+        for k in x:
+            if k not in ASK_KEYS and not k.startswith("_"):
+                errs.append(f"{x.get('name')}: {k!r} belongs inside \"params\"" if k in r["params"] or "." in k
+                            else f"{x.get('name')}: unknown key {k!r} (an ask has {', '.join(sorted(ASK_KEYS))})")
+        same = json.dumps([x.get("params", {}), x.get("image")], sort_keys=True)
+        if same in seen:
+            errs.append(f"{x.get('name')}: same params as {seen[same]} (same take twice); give it its own \"seed\"")
+        seen.setdefault(same, x.get("name"))
         for name, v in x.get("params", {}).items():
             if name == "seconds" and "fps" in r:
                 continue   # video: becomes "length" below
@@ -206,6 +231,7 @@ def make(key, asks, out, timeout):
     errs = ask_errors(key, r, asks)
     if errs:
         sys.exit("imagegen make: nothing sent, these asks do not fit the recipe:\n  " + "\n  ".join(errs))
+    timeout = job_timeout(timeout, len(asks), r.get("ask_s", 0), "asks")
     for x in asks:   # video: "seconds" -> the frame count the model takes (4n + 1)
         p = x.get("params", {})
         if "fps" in r and "seconds" in p:
@@ -231,7 +257,7 @@ def main():
     p = argparse.ArgumentParser(prog="imagegen", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run"); r.add_argument("asks"); r.add_argument("--out", required=True)
-    r.add_argument("--models", default=DEFAULT); r.add_argument("--timeout", type=int, default=3600)
+    r.add_argument("--models", default=DEFAULT); r.add_argument("--timeout", type=int, help="seconds; default grows with the batch (at least 3600)")
     o = sub.add_parser("one"); o.add_argument("prompt"); o.add_argument("--out", required=True)
     o.add_argument("--model", default=DEFAULT); o.add_argument("--size", default="1024x1024")
     o.add_argument("--seed", type=int, default=1); o.add_argument("--name", default="image")
@@ -240,7 +266,7 @@ def main():
     f = sub.add_parser("fetch"); f.add_argument("--models", default=DEFAULT); f.add_argument("--recipes", default="")
     sub.add_parser("setup"); sub.add_parser("sizes")
     mk = sub.add_parser("make"); mk.add_argument("recipe", choices=[k for k in MODELS["recipes"] if not k.startswith("_")])
-    mk.add_argument("asks"); mk.add_argument("--out", required=True); mk.add_argument("--timeout", type=int, default=3600)
+    mk.add_argument("asks"); mk.add_argument("--out", required=True); mk.add_argument("--timeout", type=int, help="seconds; default grows with the batch (at least 3600)")
     cv = sub.add_parser("convert"); cv.add_argument("templates", nargs="+")
     pv = sub.add_parser("preview"); pv.add_argument("dir")
     bp = sub.add_parser("bump", help="bump maps (normal, height, AO) for surface pictures or objects; needs numpy, scipy, Pillow here")
