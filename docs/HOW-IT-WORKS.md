@@ -46,6 +46,8 @@ A scheduled task (the *runner*) runs as `lazylink` from boot, whether or not any
   owns it in its own job object; it stops before any other kind of job (Blender, voice, setup: they get
   the whole GPU), when a job fails, after 10 minutes with no job, after 4 hours, and with the runner.
   `LAZY_WARM=0` on the Mac turns it off. Tested by `pc/test-runner-warm.ps1` on the PC.
+- raises itself (and so its jobs) from a scheduled task's Below Normal CPU, Low I/O and Low memory priority to Normal (Windows):
+  on 2026-11-21 busy normal-priority tests cut its disk reads from ~5000/s to 35/s, so ComfyUI took 10 min to start and the queue stalled.
 The Mac checks the status every 10 s and fetches the results when it's done.
 
 ## 4. Wake-on-LAN and sleep

@@ -85,9 +85,28 @@ public static class Native {
         if (!AssignProcessToJobObject(job, proc)) throw new Exception("AssignProcessToJobObject failed " + Marshal.GetLastWin32Error());
     }
     public static bool Kill(IntPtr job) { return TerminateJobObject(job, 1); }
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("ntdll.dll")] static extern int NtSetInformationProcess(IntPtr h, int cls, ref int info, int len);
+    [DllImport("kernel32.dll")] static extern bool SetProcessInformation(IntPtr h, int cls, ref int info, int len);
+    // This runner's own I/O priority (ProcessIoPriority 33: 2 = Normal) and memory priority (ProcessMemoryPriority 0:
+    // 5 = Normal); every process it starts inherits them. A standard user may set Normal on itself.
+    public static string NormalIoAndMemory() {
+        IntPtr me = GetCurrentProcess();
+        int io = 2, mem = 5;
+        int st = NtSetInformationProcess(me, 33, ref io, 4);
+        bool ok = SetProcessInformation(me, 0, ref mem, 4);
+        return "io " + (st == 0 ? "Normal" : "failed 0x" + st.ToString("x")) + ", memory " + (ok ? "Normal" : "failed " + Marshal.GetLastWin32Error());
+    }
 }
 }
 '@
+# The LazyRunner task starts this runner with a scheduled task's default priority, 7: Below Normal CPU, Low I/O and
+# Low memory priority. Every job and the warm ComfyUI inherit those. Tests from ssh sessions run at Normal, so the art
+# got the leftovers. On 2026-11-21, with 10-12 ssh test jobs running, ComfyUI took 628 s to start (15-55 s normally),
+# its picture request timed out, and this loop stalled for minutes. Low reads fell from about 5000/s to 35/s while
+# normal-priority writes kept the disk busy. So the runner runs at Normal: its jobs share the PC fairly with the tests.
+try { (Get-Process -Id $PID).PriorityClass = 'Normal'; $script:Prio = "cpu Normal, $([LazyLink.Native]::NormalIoAndMemory())" }
+catch { $script:Prio = "could not raise: $_" }
 $AWAKE = [uint32]2147483649   # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
 $RELEASE = [uint32]2147483648 # ES_CONTINUOUS
 $WarmDir = Join-Path $Root 'warm'
@@ -286,7 +305,7 @@ catch {
     if ($Lane) { exit 0 }   # this lane already has its runner
     Write-Log "another runner holds runner.lock; pid $PID exits"; Start-Sleep 30; exit 0
 }
-Write-Log "runner up (pid $PID)"
+Write-Log "runner up (pid $PID; $script:Prio)"
 # A job left 'running' by a crash or reboot is marked failed, never silently rerun. Each runner sweeps only its own
 # lane: a lane runner keeps running its job while the main runner restarts.
 Get-ChildItem $Jobs -Directory | ForEach-Object {
