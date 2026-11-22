@@ -406,7 +406,7 @@ def main():
     elif a.cmd == "sizes":
         gb = lambda names: sum(MODELS["files"][n]["size"] for n in set(names)) / 1e9
         for k, m in MODELS["models"].items():
-            print(f"model  {k:9} {gb([m['unet'], m['clip'], m['vae']]):5.1f} GB  {m['label']}: {m['licence']}")
+            print(f"model  {k:9} {gb([m[x] for x in ('unet', 'clip', 'vae', 'lora') if m.get(x)]):5.1f} GB  {m['label']}: {m['licence']}")
         for k, r in MODELS["recipes"].items():
             if not k.startswith("_"):
                 print(f"recipe {k:9} {gb(r['files']):5.1f} GB  {r['label']}: {r['licence']}")
@@ -418,7 +418,8 @@ def main():
              sh=posix_script("setup.sh"))
         print((out / "_log.txt").read_text(encoding="utf-8-sig", errors="replace"))
     else:
-        files = {MODELS["models"][k][part] for k in model_keys(a.models) for part in ("unet", "clip", "vae")} | {MODELS["cutout"]["model"]}
+        files = {MODELS["models"][k][part] for k in model_keys(a.models) for part in ("unet", "clip", "vae", "lora")
+                 if MODELS["models"][k].get(part)} | {MODELS["cutout"]["model"]}
         files = sorted(files | {f for r in a.recipes.split(",") if r for f in MODELS["recipes"][r]["files"]})
         out = REPO / "reports" / ("fetch-" + time.strftime("%Y%m%d-%H%M%S"))
         gated = sorted({MODELS["files"][f]["gated"] for f in files if MODELS["files"][f].get("gated")})

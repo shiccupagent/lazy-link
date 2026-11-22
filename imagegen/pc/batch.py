@@ -129,6 +129,7 @@ def vram_used_mb():
 def resolve(kind, name):
     """ComfyUI lists files by path inside its model folders (e.g. FLUX1\\ae.safetensors)."""
     node = {"unet": ("UNETLoader", "unet_name"), "clip": ("CLIPLoader", "clip_name"), "vae": ("VAELoader", "vae_name"),
+            "lora": ("LoraLoaderModelOnly", "lora_name"),
             "cutout": ("LoadBackgroundRemovalModel", "bg_removal_name")}[kind]
     spec = api(f"/object_info/{node[0]}")[node[0]]["input"]["required"][node[1]]
     choices = spec[1]["options"] if spec[0] == "COMBO" else spec[0]  # newer nodes: ["COMBO", {"options": [...]}]
@@ -174,6 +175,10 @@ def graph(m, files, ask, prefix):
         g["rgba"] = {"class_type": "JoinImageWithAlpha", "inputs": {"image": ["decode", 0], "alpha": ["bgmask", 0]}}
         g["save_cut"] = {"class_type": "SaveImage", "inputs": {"images": ["rgba", 0], "filename_prefix": prefix + "-cutout"}}
     model = ["unet", 0]
+    if m.get("lora"):  # e.g. a few-step distillation LoRA on the model ("lora_strength", default 1)
+        g["lora"] = {"class_type": "LoraLoaderModelOnly", "inputs": {
+            "model": model, "lora_name": files["lora"], "strength_model": m.get("lora_strength", 1)}}
+        model = ["lora", 0]
     if m.get("shift"):
         g["shift"] = {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": model, "shift": m["shift"]}}
         model = ["shift", 0]
@@ -576,7 +581,7 @@ def main():
         for n, key in enumerate(WANT):
             m = M["models"][key]
             warm_model = ready_for(key) if n == 0 else False
-            files = {k: resolve(k, m[k]) for k in ("unet", "clip", "vae")}
+            files = {k: resolve(k, m[k]) for k in ("unet", "clip", "vae", "lora") if m.get(k)}
             if any(a.get("cutout") for a in ASKS):
                 files["cutout"] = resolve("cutout", M["cutout"]["model"])
                 try:   # the retry model for an empty cutout; without it an empty cutout fails at once

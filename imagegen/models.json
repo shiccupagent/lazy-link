@@ -92,6 +92,8 @@
    "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094",
    "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/main/text_encoders/qwen3vl_4b_fp8_scaled.safetensors"
   },
+  "kromoss_int8_convrot.safetensors": {"dir": "diffusion_models", "size": 5413698958, "sha256": "cacff0dd25cd2cf531e1f5ddae7872c3d57a54dbf66f1a1279f2f118514e7905", "url": "https://huggingface.co/lodestones/Kromoss/resolve/main/diffusion_models/kromoss_int8_convrot.safetensors"},
+  "moss_8steps_dmd2_lora.safetensors": {"dir": "loras", "size": 1189176800, "sha256": "7683fe1fb51f73f5d690f24dd6b7f46f31ab9a9873729a854ac5c9a420ffe6f2", "url": "https://huggingface.co/lodestones/Kromoss/resolve/main/8-steps-dmd2-lora.safetensors"},
   "moss_image_base_int8_convrot.safetensors": {
    "dir": "diffusion_models",
    "size": 5413698958,
@@ -302,6 +304,40 @@
    "sampler": "euler",
    "scheduler": "simple",
    "negative": "empty"
+  },
+  "moss8": {
+   "version": 1,
+   "label": "MOSS-Image Base + 8-step DMD2 LoRA (int8)",
+   "licence": "Apache-2.0: free for any commercial use (base OpenMOSS-Team/MOSS-Image-Base via Comfy-Org/MOSS-Image; LoRA lodestones/Kromoss 8-steps-dmd2-lora, a community distillation, not an OpenMOSS release)",
+   "_doc": "bake-off candidate 2026-11-22 (the '8-step turbo' MOSS): settings from the LoRA's model card (LoraLoaderModelOnly strength 1, KSampler euler/simple, 8 steps, CFG 1, no negative branch)",
+   "unet": "moss_image_base_int8_convrot.safetensors",
+   "lora": "moss_8steps_dmd2_lora.safetensors",
+   "clip": "qwen3.5_9b_w4a8_gptq.safetensors",
+   "clip_type": "moss_image",
+   "vae": "flux2-vae_small.safetensors",
+   "graph": "ksampler",
+   "latent": "EmptyFlux2LatentImage",
+   "steps": 8,
+   "cfg": 1,
+   "sampler": "euler",
+   "scheduler": "simple"
+  },
+  "kromoss8": {
+   "version": 1,
+   "label": "Kromoss (MOSS-Image fine-tune) + 8-step DMD2 LoRA (int8)",
+   "licence": "Apache-2.0: free for any commercial use (lodestones/Kromoss, a community full fine-tune of OpenMOSS-Team/MOSS-Image-Base, and its 8-steps-dmd2-lora)",
+   "_doc": "bake-off candidate 2026-11-22: Kromoss int8 + the same 8-step LoRA, settings as moss8",
+   "unet": "kromoss_int8_convrot.safetensors",
+   "lora": "moss_8steps_dmd2_lora.safetensors",
+   "clip": "qwen3.5_9b_w4a8_gptq.safetensors",
+   "clip_type": "moss_image",
+   "vae": "flux2-vae_small.safetensors",
+   "graph": "ksampler",
+   "latent": "EmptyFlux2LatentImage",
+   "steps": 8,
+   "cfg": 1,
+   "sampler": "euler",
+   "scheduler": "simple"
   },
   "moss": {
    "version": 1,
