@@ -33,6 +33,11 @@ Write the prompt as a full caption of the result with the change folded in. With
 reference's size (rounded to 16 px). The result follows the reference's layout closely: for a new pose, give ONE pose as
 the reference (crop it out of a sheet) and ask for one pose per picture ("Create a new picture of the fighter from the
 first image, <pose>, full body, on ..."); a whole 2x2 sheet as the reference comes back as nearly the same sheet.
+Put the pose FIRST and keep the look short: a long costume description before the pose words brings back the reference's
+stance (a 2026-11-24 test: 0 of 6 takes in the asked pose with the pose last, 6 of 6 with it first). For an exact pose, add a
+grey stick mannequin in that pose on the same background as a second reference ("... in exactly the pose of the grey
+mannequin in the second image: <pose> ..., nothing of the mannequin's flat grey look"): it follows the limbs, head
+direction and figure size (6 of 6, about 2x the time).
 Each result is DIR/<name>__<model>.png (+ <name>__<model>-cutout.png with a transparent
 background when "cutout" is true), plus DIR/timings.json and DIR/comfy.log.
 A cutout that keeps under models.json cutout.min_cover of the picture (an empty mask) is tried once more with the
