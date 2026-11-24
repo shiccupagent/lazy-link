@@ -13,6 +13,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
   An empty cutout (mask under 2% of the picture) is retried once with plain BiRefNet; still empty = no `-cutout.png`,
   `"cutout": {"status": "failed"}` on its timings.json row, listed in timings.json `cutout_failed`, and a CUTOUT FAILED line.
 - `./imagegen/imagegen.py run ASKS.json --out DIR`: many images in one job (format in the script's docstring).
+  `"init"` + `"mask"` repaint part of a picture; `"refs": [pictures]` paints a NEW picture of what they show (new pose, view
+  or scene, same character and style; klein3/klein only, ComfyUI's Klein image-edit wiring).
 - `./imagegen/imagegen.py make audio|sfx|music3|mesh|maps ASKS.json --out DIR`: sounds/music (`audio` = Stable Audio 3 medium, the pick for game sounds and music; `sfx` = the small SFX model; `music3` = MiniMax Music 3, the owner's pick for game music: every take comes back exactly `seconds` long and loop-ready, see models.json; credit rule in models.json), picture to 3D, or picture to normal + depth maps (MoGe-2).
   Every recipe input goes inside `"params"` (a `"prompt"` beside `"name"` is refused, not ignored); two asks with the same
   params are refused too (give each take its own `seed`). The default `--timeout` grows with the batch (models.json `ask_s`).

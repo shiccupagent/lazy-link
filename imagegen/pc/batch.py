@@ -143,7 +143,16 @@ def resolve(kind, name):
     return hits[0]
 
 
+def ref_size(path):
+    """A reference picture's size rounded to the 16 px the FLUX latents want."""
+    from PIL import Image
+    w, h = Image.open(path).size
+    return max(16, round(w / 16) * 16), max(16, round(h / 16) * 16)
+
+
 def graph(m, files, ask, prefix):
+    if ask.get("refs") and not (ask.get("w") or ask.get("h")):   # a new picture of a reference: its size by default
+        ask["w"], ask["h"] = ref_size(ask["refs"][0])
     w, h, seed = ask.get("w", 1024), ask.get("h", 1024), ask.get("seed", 1)
     g = {
         "unet": {"class_type": "UNETLoader", "inputs": {"unet_name": files["unet"], "weight_dtype": "default"}},
@@ -174,6 +183,17 @@ def graph(m, files, ask, prefix):
         g["bgmask"] = {"class_type": "InvertMask", "inputs": {"mask": ["fg", 0]}}  # JoinImageWithAlpha wants 1 = clear
         g["rgba"] = {"class_type": "JoinImageWithAlpha", "inputs": {"image": ["decode", 0], "alpha": ["bgmask", 0]}}
         g["save_cut"] = {"class_type": "SaveImage", "inputs": {"images": ["rgba", 0], "filename_prefix": prefix + "-cutout"}}
+    pos, neg = ["pos", 0], ["neg", 0]
+    for i, r in enumerate(ask.get("refs") or []):
+        # reference pictures, as in ComfyUI's image_flux3_klein_distilled_image_edit / image_flux2_klein_image_edit
+        # templates: each one VAE-encoded (at its own size) and added to BOTH the positive and the negative
+        if m.get("latent") != "EmptyFlux2LatentImage":
+            sys.exit(f"batch: \"refs\" needs a FLUX Klein model (klein3, klein); {m['label']} has no reference input")
+        g[f"ref{i}"] = {"class_type": "LoadImage", "inputs": {"image": upload(r)}}
+        g[f"ref{i}_lat"] = {"class_type": "VAEEncode", "inputs": {"pixels": [f"ref{i}", 0], "vae": ["vae", 0]}}
+        g[f"ref{i}_pos"] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": pos, "latent": [f"ref{i}_lat", 0]}}
+        g[f"ref{i}_neg"] = {"class_type": "ReferenceLatent", "inputs": {"conditioning": neg, "latent": [f"ref{i}_lat", 0]}}
+        pos, neg = [f"ref{i}_pos", 0], [f"ref{i}_neg", 0]
     model = ["unet", 0]
     if m.get("lora"):  # e.g. a few-step distillation LoRA on the model ("lora_strength", default 1)
         g["lora"] = {"class_type": "LoraLoaderModelOnly", "inputs": {
@@ -190,14 +210,14 @@ def graph(m, files, ask, prefix):
         model = ["slg", 0]
     if m["graph"] == "ksampler":
         g["sample"] = {"class_type": "KSampler", "inputs": {
-            "model": model, "positive": ["pos", 0], "negative": ["neg", 0], "latent_image": ["latent", 0],
+            "model": model, "positive": pos, "negative": neg, "latent_image": ["latent", 0],
             "seed": seed, "steps": m["steps"], "cfg": m["cfg"], "sampler_name": m["sampler"],
             "scheduler": m["scheduler"], "denoise": ask.get("denoise", 1)}}
     else:  # flux2: custom sampler with the Flux2 schedule, as in image_flux2_klein_text_to_image
         g["noise"] = {"class_type": "RandomNoise", "inputs": {"noise_seed": seed}}
         g["sampler"] = {"class_type": "KSamplerSelect", "inputs": {"sampler_name": m["sampler"]}}
         g["sigmas"] = {"class_type": "Flux2Scheduler", "inputs": {"steps": m["steps"], "width": w, "height": h}}
-        g["guider"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": ["pos", 0], "negative": ["neg", 0], "cfg": m["cfg"]}}
+        g["guider"] = {"class_type": "CFGGuider", "inputs": {"model": model, "positive": pos, "negative": neg, "cfg": m["cfg"]}}
         g["sample"] = {"class_type": "SamplerCustomAdvanced", "inputs": {
             "noise": ["noise", 0], "guider": ["guider", 0], "sampler": ["sampler", 0],
             "sigmas": ["sigmas", 0], "latent_image": ["latent", 0]}}

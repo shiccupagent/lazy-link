@@ -27,6 +27,12 @@ make video: params also take "seconds"; "image" is the first frame; "loop": S, "
 ASKS.json is a list of {"name": "...", "prompt": "...", "w": 1024, "h": 1024, "seed": 1, "cutout": false}.
 Repaint part of a picture: "init": "in.png", "mask": "mask.png" (white = repaint), "denoise": 0.6; the pictures are
 found beside ASKS.json (or by full path) and sent with the job; pixels outside the mask come back exactly.
+New picture of the same subject (a new pose, view or scene): "refs": ["a.png", "b.png"], one or more reference pictures
+(beside ASKS.json or full paths), fed to the model at their own size as in ComfyUI's FLUX Klein image-edit templates.
+Write the prompt as a full caption of the result with the change folded in. Without "w"/"h" the result takes the first
+reference's size (rounded to 16 px). The result follows the reference's layout closely: for a new pose, give ONE pose as
+the reference (crop it out of a sheet) and ask for one pose per picture ("Create a new picture of the fighter from the
+first image, <pose>, full body, on ..."); a whole 2x2 sheet as the reference comes back as nearly the same sheet.
 Each result is DIR/<name>__<model>.png (+ <name>__<model>-cutout.png with a transparent
 background when "cutout" is true), plus DIR/timings.json and DIR/comfy.log.
 A cutout that keeps under models.json cutout.min_cover of the picture (an empty mask) is tried once more with the
@@ -142,7 +148,7 @@ def job_timeout(timeout, n, per_ask, what):
 
 
 def run(asks, keys, out, timeout, inputs=()):
-    """inputs: local pictures the asks name in "init" / "mask" (sent beside asks.json)."""
+    """inputs: local pictures the asks name in "init" / "mask" / "refs" (sent beside asks.json)."""
     out = Path(out).expanduser().resolve()
     timeout = job_timeout(timeout, len(asks) * len(keys), MODELS.get("picture_s", 90), "pictures")
     with tempfile.TemporaryDirectory() as td:
@@ -162,21 +168,28 @@ def run(asks, keys, out, timeout, inputs=()):
 
 
 def with_pictures(asks_file):
-    """The asks in ASKS.json, with each "init" / "mask" picture (beside ASKS.json, or a full path) sent as
+    """The asks in ASKS.json, with each "init" / "mask" / "refs" picture (beside ASKS.json, or a full path) sent as
     inputs/<name> and the ask pointed there. Returns (asks, inputs for run)."""
     asks = json.loads(asks_file.read_text(encoding="utf-8-sig"))
     sent = {}
+
+    def send_one(x, k, path):
+        src = (asks_file.parent / path).resolve()
+        if not src.is_file():
+            sys.exit(f"imagegen: ask {x.get('name', '?')!r}: {k} picture {path} not found (beside {asks_file.name}, or a full path)")
+        dest = f"inputs/{src.name}"
+        if sent.setdefault(dest, src) != src:
+            sys.exit(f"imagegen: two different pictures are both called {src.name}; rename one")
+        return dest
+
     for x in asks:
         for k in ("init", "mask"):
-            if not x.get(k):
-                continue
-            src = (asks_file.parent / x[k]).resolve()
-            if not src.is_file():
-                sys.exit(f"imagegen: ask {x.get('name', '?')!r}: {k} picture {x[k]} not found (beside {asks_file.name}, or a full path)")
-            dest = f"inputs/{src.name}"
-            if sent.setdefault(dest, src) != src:
-                sys.exit(f"imagegen: two different pictures are both called {src.name}; rename one")
-            x[k] = dest
+            if x.get(k):
+                x[k] = send_one(x, k, x[k])
+        if "refs" in x:
+            if isinstance(x["refs"], str) or not x["refs"]:
+                sys.exit(f"imagegen: ask {x.get('name', '?')!r}: \"refs\" is a list of one or more pictures")
+            x["refs"] = [send_one(x, "refs", r) for r in x["refs"]]
     return asks, [(src, dest) for dest, src in sent.items()]
 
 

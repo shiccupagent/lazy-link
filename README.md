@@ -103,6 +103,8 @@ They need ffmpeg and `pip3 install numpy scipy pillow` on your small computer.
 ```bash
 ./imagegen/imagegen.py one "a red ceramic mug, product photo" --out out/ --cutout
 ./imagegen/imagegen.py run imagegen/examples/images.json --out out/          # many at once
+                    # an ask with "refs": ["hero.png"] paints a new picture of what the references show (a new pose, view or
+                    # scene, same character and style; FLUX Klein models; see the top of imagegen.py)
 ./imagegen/imagegen.py make audio imagegen/examples/sounds.json --out out/   # sounds / music
 ./imagegen/imagegen.py make mesh imagegen/examples/mesh.json --out out/      # picture -> 3D (.glb)
 ./imagegen/imagegen.py make video imagegen/examples/video.json --out out/    # short looping clips (.mp4, + transparent .webm)
