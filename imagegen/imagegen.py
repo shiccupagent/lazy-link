@@ -123,21 +123,44 @@ def send(files, ps1, want, name, out, timeout, sh=None, warm=False, secrets=()):
     pc.release(woke)   # back to sleep if we woke it and nobody is on it
 
 
+def stage(src, dst, seen):
+    """Put src in the job folder as dst: a hard link (no extra disk; pcjob only reads it to build the tar), or a copy
+    when the temp folder is on another disk, or when this job already holds the same file under another name (tar
+    would store the second as a link entry, and the PC gets plain files today). seen: (device, inode) already linked."""
+    st = os.stat(src)
+    key = (st.st_dev, st.st_ino)
+    if key not in seen:
+        try:
+            os.link(src, dst)
+            seen.add(key)
+            return
+        except OSError:   # another disk, or a file system without hard links
+            pass
+    shutil.copy(src, dst)
+
+
 def _send(pc, files, ps1, want, name, out, timeout, sh, warm):
+    # The staged folder lives only until pcjob has sent its tar; the wait for the job (hours, in a busy queue) holds
+    # nothing on disk (2026-11-27: 12 web-video jobs of the same ~400 MB page each kept a full copy in $TMPDIR while
+    # they queued, 4.6 GB in all).
     with tempfile.TemporaryDirectory() as td:
         job = Path(td) / "job"
         job.mkdir()
+        seen = set()
         for f in files:  # a path, or (path, place in the job folder)
             src, rel = (f, Path(f).name) if not isinstance(f, tuple) else f
             (job / rel).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy(src, job / rel)
+            stage(src, job / rel, seen)
         (job / ("job.sh" if pc.POSIX else "job.ps1")).write_text(sh if pc.POSIX else ps1)
         json.dump(want, open(job / "want.json", "w"))
         if warm and not pc.POSIX and os.environ.get("LAZY_WARM", "1") != "0":
             json.dump(warm_spec(), open(job / "warm.json", "w"), sort_keys=True)
         # the PC-side scripts read your extra model folders from here (config.json, never anything else)
         json.dump({"extra_model_folders": pc.CFG.get("extra_model_folders", {})}, open(job / "link.json", "w"))
-        job_id = pc.cmd_run(Namespace(dir=str(job), name=name, timeout=timeout, wait=True, fetch=str(out)))
+        a = Namespace(dir=str(job), name=name, timeout=timeout, wait=False, fetch=None)
+        job_id = pc.cmd_run(a)   # sends it and returns; run sets a.timeout when it was None
+    a.fetch = str(out)
+    pc.finish(job_id, a)
     pc.cmd_rm(Namespace(id=job_id))
 
 

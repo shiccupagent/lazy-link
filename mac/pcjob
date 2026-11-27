@@ -815,14 +815,23 @@ def cmd_run(a):
     note_sent(job_id, src, a)
     print(job_id)
     if a.wait or a.fetch:
-        queue_max = getattr(a, "queue_max", None) or (LANES[lane] if lane else QUEUE_MAX)
-        st = cmd_wait(argparse.Namespace(id=job_id, max=a.timeout + 300, queue_max=queue_max, lane=lane))
-        if a.fetch:
-            cmd_fetch(argparse.Namespace(id=job_id, dest=a.fetch))
-        if st["state"] != "done":
-            sys.exit(f"pcjob: {job_id} {st['state']}" + (f": {st['error'].strip()}" if st.get("error") else "")
-                     + (f"; its logs (_log.txt, _err.txt) are in {a.fetch}" if a.fetch else ""))
+        finish(job_id, a)
     return job_id
+
+
+def finish(job_id, a):
+    """The rest of run --wait / --fetch for a job already sent: wait for it (a.timeout + 300 s running, its lane's
+    queue limit waiting), fetch it to a.fetch if set, and exit unless it ended done. Python callers that stage a folder
+    only to send it call run without wait or fetch, delete the folder, then call this, so a job that waits hours in
+    the queue does not keep a copy of its inputs on the Mac's disk."""
+    lane = getattr(a, "lane", None) or ""
+    queue_max = getattr(a, "queue_max", None) or (LANES[lane] if lane else QUEUE_MAX)
+    st = cmd_wait(argparse.Namespace(id=job_id, max=a.timeout + 300, queue_max=queue_max, lane=lane))
+    if a.fetch:
+        cmd_fetch(argparse.Namespace(id=job_id, dest=a.fetch))
+    if st["state"] != "done":
+        sys.exit(f"pcjob: {job_id} {st['state']}" + (f": {st['error'].strip()}" if st.get("error") else "")
+                 + (f"; its logs (_log.txt, _err.txt) are in {a.fetch}" if a.fetch else ""))
 
 
 def queue_ahead(job_id, lane=None):
