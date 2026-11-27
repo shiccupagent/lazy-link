@@ -709,6 +709,23 @@ def wait_for_cheap(force=False):
 SENT = REPO / "mac" / "sent"   # local notes of what each sent job makes (gitignored); a dashboard can show them
 
 
+def claim_id(name):
+    """A job id no other send on this computer holds. Ids were the second plus the name, so two jobs sent in the
+    same second with the same name shared one id and folder on the PC (2026-11-26: a film's scene 03 render came
+    back as scene 05's file). The id is claimed with an exclusive create of mac/sent/<id>.claim, which is safe
+    between processes; on a clash it gets -2, -3 and so on."""
+    base = time.strftime("%Y%m%d-%H%M%S-") + name
+    SENT.mkdir(parents=True, exist_ok=True)
+    for n in range(1, 100):
+        job_id = base if n == 1 else f"{base}-{n}"
+        try:
+            os.close(os.open(SENT / f"{job_id}.claim", os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return job_id
+        except FileExistsError:
+            continue
+    sys.exit(f"pcjob: no free job id for {base} (99 sends in one second?)")
+
+
 def note_sent(job_id, src, a):
     """mac/sent/<id>.json: what a job makes and who it is for, read from the job folder as it is sent, so a
     dashboard can say more than "imagegen". The folder's about.json ({"what": ..., "for": ...}) if the sender
@@ -742,7 +759,7 @@ def note_sent(job_id, src, a):
         tmp.write_text(json.dumps(rec, indent=1))
         os.replace(tmp, SENT / f"{job_id}.json")
         old = time.time() - 3 * 86400
-        for f in SENT.glob("*.json"):
+        for f in [*SENT.glob("*.json"), *SENT.glob("*.claim")]:
             if f.stat().st_mtime < old:
                 f.unlink(missing_ok=True)
     except Exception as e:   # a note is a nicety: report it and carry on with the job
@@ -771,7 +788,7 @@ def cmd_run(a):
         while quiet_until():
             time.sleep(30)
     wait_for_cheap(getattr(a, "cheap", False))
-    job_id = time.strftime("%Y%m%d-%H%M%S-") + name
+    job_id = claim_id(name)
     wake()
     ok, age = runner_alive()
     if not ok:
