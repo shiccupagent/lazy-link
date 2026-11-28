@@ -63,6 +63,8 @@ macpc/) runs the same jobs with Metal/MPS; setup is untested on real hardware (d
 - `./mac/pcjob prune [--older-than 7d] [--legacy] [--yes]`: lists (removes, with `--yes`) finished jobs on the PC older than that
   whose results this Mac fetched (`fetch` leaves a `fetched` mark); `--legacy` also counts done/failed/timeout jobs from before
   2026-11-11. Never a running or cancelled job: a cancelled job's frames may be the only copy (`pcjob rm ID` once its owner agrees).
+  It also lists `unsent` folders (a send that stopped part way: no `ready` file, nothing changed for an hour); no runner
+  takes them, and `pcjob list` shows them as `unsent`, never `queued`.
 - `./mac/pcjob ping | list | status ID | log ID | cancel ID | wake | sleep | cheap` (`cancel` on a queued job ends it
   within seconds, without starting it). `run` and `wait` ride out a PC that stops answering for up to 10 min
   (`LAZY_LINK_WAIT_GRACE` s) before giving up; the job keeps running on the PC either way.

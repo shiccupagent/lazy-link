@@ -266,17 +266,20 @@ SH_LANE = 'ln=; [ -f "$d/lane" ] && ln=$(head -n 1 "$d/lane"); '
 
 
 def op_list_jobs(lane=""):
-    """'state id' per job of one lane ('' = the main runner's), oldest first."""
+    """'state id' per job of one lane ('' = the main runner's), oldest first. A folder with no 'ready' file (and no
+    status.json or cancel) is 'unsent': its send stopped part way, so no runner will ever take it. op_status calls it
+    "missing" and op_busy_jobs skips it; listing it as queued kept a PC awake all night (2026-11-27)."""
     return (f"Get-ChildItem '{ROOT}/jobs' -Directory | Sort-Object CreationTime | ForEach-Object {{ " + PS_LANE +
             f"if ($ln -ne '{lane}') {{ return }}; "
             "$s = Join-Path $_.FullName 'status.json'; "
             "$st = if (Test-Path $s) { (Get-Content $s -Raw | ConvertFrom-Json).state } "
-            "elseif (Test-Path (Join-Path $_.FullName 'cancel')) { 'cancelling' } else { 'queued' }; "
+            "elseif (Test-Path (Join-Path $_.FullName 'cancel')) { 'cancelling' } "
+            "elseif (Test-Path (Join-Path $_.FullName 'ready')) { 'queued' } else { 'unsent' }; "
             "'{0,-10} {1}' -f $st, $_.Name }",
             "cd " + q(ROOT + "/jobs") + " 2>/dev/null || exit 0; for d in *; do [ -d \"$d\" ] || continue; "
             + SH_LANE + "[ \"$ln\" = " + q(lane) + " ] || continue; "
-            "st=queued; if [ -f \"$d/status.json\" ]; then st=$(sed -n 's/.*\"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$d/status.json\"); "
-            "elif [ -f \"$d/cancel\" ]; then st=cancelling; fi; "
+            "st=unsent; if [ -f \"$d/status.json\" ]; then st=$(sed -n 's/.*\"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$d/status.json\"); "
+            "elif [ -f \"$d/cancel\" ]; then st=cancelling; elif [ -f \"$d/ready\" ]; then st=queued; fi; "
             "printf '%-10s %s\\n' \"$st\" \"$d\"; done")
 
 
@@ -360,21 +363,30 @@ def op_mark_fetched(job_id):
 
 
 def op_prune_list():
-    """One line per job folder: id, state, days since it last changed, bytes, fetched (1/0)."""
+    """One line per job folder: id, state (status.json's, else cancelling / queued / unsent as in op_list_jobs),
+    days since it last changed, bytes, fetched (1/0), recent (1/0: the folder or a file in it changed in the last
+    hour, so an unsent folder may still be mid-send)."""
     return (f"$now = Get-Date; Get-ChildItem '{ROOT}/jobs' -Directory | ForEach-Object {{ "
-            "$s = 'missing'; $f = Join-Path $_.FullName 'status.json'; "
+            "$f = Join-Path $_.FullName 'status.json'; "
             "if (Test-Path $f) { try { $s = (Get-Content $f -Raw | ConvertFrom-Json).state } catch { $s = 'unreadable' }; "
-            "$t = (Get-Item $f).LastWriteTime } else { $t = $_.LastWriteTime }; "
-            "$b = (Get-ChildItem $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum; "
+            "$t = (Get-Item $f).LastWriteTime } else { $t = $_.LastWriteTime; "
+            "$s = if (Test-Path (Join-Path $_.FullName 'cancel')) { 'cancelling' } "
+            "elseif (Test-Path (Join-Path $_.FullName 'ready')) { 'queued' } else { 'unsent' } }; "
+            "$files = @(Get-ChildItem $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue); "
+            "$b = ($files | Measure-Object Length -Sum).Sum; "
             "if (-not $b) { $b = 0 }; "
             "$fe = if (Test-Path (Join-Path $_.FullName 'fetched')) { 1 } else { 0 }; "
-            "\"$($_.Name)`t$s`t$([int]($now - $t).TotalDays)`t$b`t$fe\" }",
+            "$hour = $now.AddHours(-1); "
+            "$rc = if ($_.LastWriteTime -gt $hour -or @($files | Where-Object { $_.LastWriteTime -gt $hour }).Count) { 1 } else { 0 }; "
+            "\"$($_.Name)`t$s`t$([int]($now - $t).TotalDays)`t$b`t$fe`t$rc\" }",
             "cd " + q(ROOT + "/jobs") + " 2>/dev/null || exit 0; now=$(date +%s); for d in *; do [ -d \"$d\" ] || continue; "
-            "st=missing; t=$(stat -c %Y \"$d\" 2>/dev/null || stat -f %m \"$d\"); "
+            "st=unsent; [ -f \"$d/ready\" ] && st=queued; [ -f \"$d/cancel\" ] && st=cancelling; "
+            "t=$(stat -c %Y \"$d\" 2>/dev/null || stat -f %m \"$d\"); "
             "if [ -f \"$d/status.json\" ]; then st=$(sed -n 's/.*\"state\": *\"\\([a-z]*\\)\".*/\\1/p' \"$d/status.json\" | head -n 1); "
             "t=$(stat -c %Y \"$d/status.json\" 2>/dev/null || stat -f %m \"$d/status.json\"); fi; "
             "b=$(du -sk \"$d\" | cut -f1); fe=0; [ -f \"$d/fetched\" ] && fe=1; "
-            "printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \"$d\" \"${st:-missing}\" $(( (now - t) / 86400 )) $((b * 1024)) $fe; done")
+            "rc=0; [ -n \"$(find \"$d\" -mmin -60 2>/dev/null | head -n 1)\" ] && rc=1; "
+            "printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \"$d\" \"${st:-missing}\" $(( (now - t) / 86400 )) $((b * 1024)) $fe $rc; done")
 
 
 def op_remove_job(job_id):
@@ -965,8 +977,10 @@ FINISHED = ("done", "failed", "timeout", "cancelled")
 
 
 def cmd_prune(a):
-    """Old finished jobs whose results the Mac fetched: list them, and remove them with --yes. A job is never
-    removed while it runs, and a cancelled job only when it was fetched (its frames may be all there is)."""
+    """Old finished jobs whose results the Mac fetched, and unsent folders (a send that stopped part way: no
+    'ready' file, nothing changed for an hour, so no runner will ever take them): list them, and remove them with
+    --yes. A job is never removed while it runs, and a cancelled job only when it was fetched (its frames may be all
+    there is)."""
     m = re.fullmatch(r"(\d+)d?", a.older_than.strip())
     if not m:
         sys.exit("pcjob: --older-than takes days, e.g. 7d")
@@ -974,12 +988,14 @@ def cmd_prune(a):
     rows = []
     for line in on_pc(op_prune_list, timeout=900).splitlines():
         parts = line.strip().split("\t")
-        if len(parts) != 5 or not SAFE_ID.fullmatch(parts[0]):
+        if len(parts) != 6 or not SAFE_ID.fullmatch(parts[0]):
             continue
         job, state, age, size, fetched = parts[0], parts[1], int(parts[2]), int(parts[3] or 0), parts[4] == "1"
         legacy = a.legacy and job[:8] < MARKED_SINCE and state in ("done", "failed", "timeout")
         if state in FINISHED and age >= days and (fetched or legacy):
             rows.append((job, state, age, size, "fetched" if fetched else "legacy"))
+        elif state == "unsent" and parts[5] == "0":
+            rows.append((job, state, age, size, "no send"))
     total = sum(r[3] for r in rows)
     for job, state, age, size, why in rows:
         print(f"{size / 1e9:7.2f} GB  {state:9s} {age:3d} d  {why:7s}  {job}")
@@ -987,8 +1003,9 @@ def cmd_prune(a):
     if not a.yes:
         return
     gone = 0
-    for job, *_ in rows:
-        if status(job)["state"] == "running":
+    for job, state, *_ in rows:
+        now = status(job)["state"]
+        if now == "running" or (state == "unsent" and now != "missing"):   # unsent: only if it is still unsent
             continue
         on_pc(op_remove_job, job, check=False)
         gone += 1

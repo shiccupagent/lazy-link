@@ -263,7 +263,9 @@ with exit code 75 ("try later") without touching the network, so not even a quic
 ## Free up the PC's job folder (optional)
 Every job leaves its folder on the PC. `./mac/pcjob prune` lists the finished ones over a week old whose results the
 Mac has already fetched, with their size; `./mac/pcjob prune --yes` removes them (`--older-than 3d` to go further back).
-It never touches a running job or a cancelled one, whose half-made results may be the only copy.
+It never touches a running job or a cancelled one, whose half-made results may be the only copy. It also lists folders
+whose send stopped part way (`unsent` in `./mac/pcjob list`; nothing in them changed for an hour), since no job will
+ever run from them.
 
 Installed before 2026-10-30? Re-run Setup-PC; it renames `render` to `lazylink` and keeps your models. Then pair again from the Mac.
 
